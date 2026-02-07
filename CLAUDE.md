@@ -4,28 +4,74 @@ Project context and guidelines for Claude Code development on this repository.
 
 ## Project Overview
 
-**Claude Glasses Terminal** - A wearable terminal interface for Claude Code on Rokid AR glasses. View and interact with Claude Code through AR glasses using gestures and voice commands.
+**Clawsses** - A wearable OpenClaw client for Rokid AR glasses. View and interact with an OpenClaw AI assistant through AR glasses using gestures and voice commands.
 
 ### Architecture
 
 ```
-Server (Node.js)  ←WebSocket→  Phone App (Android)  ←Bluetooth→  Glasses App (Android)
+OpenClaw Gateway  ←WebSocket→  Phone App (Android)  ←Bluetooth→  Glasses App (Android)
      │                              │                                   │
      │                              │                                   │
-  tmux + Claude Code           CXR-M SDK                           CXR-S SDK
-  Terminal capture             Voice input                         HUD display
-  Key injection                Bridge logic                        Gesture input
+  AI agent                     CXR-M SDK                           CXR-S SDK
+  Block streaming              Voice input                         Chat HUD
+  Sessions                     Bridge logic                        Gesture input
 ```
 
 ### Key Components
 
 | Component | Path | Purpose |
 |-----------|------|---------|
-| **Server** | `server/` | Node.js WebSocket server running Claude Code in tmux |
-| **Phone App** | `phone-app/` | Android companion app with CXR-M SDK |
+| **Phone App** | `phone-app/` | Android companion app with CXR-M SDK, OpenClaw client |
 | **Glasses App** | `glasses-app/` | Android HUD app with CXR-S SDK |
-| **Shared** | `shared/` | Protocol definitions |
+| **Shared** | `shared/` | Protocol definitions (OpenClaw + phone-glasses) |
 | **Docs** | `docs/` | Documentation and images |
+
+## OpenClaw Protocol
+
+The phone app connects to an OpenClaw Gateway via WebSocket (default port 18789).
+
+### Message Types
+
+- **Request** (`type: "req"`): Client → server with method + params, tracked by `id`
+- **Response** (`type: "res"`): Server → client, correlated by `id`, `ok: true/false`
+- **Event** (`type: "event"`): Server push notifications (streaming, presence, etc.)
+
+### Connection Flow
+
+1. Connect WebSocket to `ws://host:port`
+2. Server sends `connect.challenge` event (nonce)
+3. Client sends `connect` request with auth token
+4. Server responds with `hello-ok` + device token
+
+### Streaming (Block-based)
+
+1. Client sends `agent.run` request
+2. Server acks with `runId` + `status: "accepted"`
+3. Server pushes `event:agent` frames with buffered text chunks
+4. Final `res` with `runId` signals completion
+
+## Phone ↔ Glasses Protocol
+
+### Phone → Glasses
+
+| Message | Purpose |
+|---------|---------|
+| `chat_message` | Complete message (user echo or finished assistant msg) |
+| `agent_thinking` | Agent acknowledged, no content yet |
+| `chat_stream` | Streaming text chunk to append |
+| `chat_stream_end` | Stream complete |
+| `connection_update` | OpenClaw connection state |
+| `session_list` | Available sessions |
+| `voice_state` / `voice_result` | Voice recognition feedback |
+
+### Glasses → Phone
+
+| Message | Purpose |
+|---------|---------|
+| `user_input` | User text + optional photo |
+| `list_sessions` / `switch_session` | Session management |
+| `slash_command` | e.g. "/model" |
+| `start_voice` / `cancel_voice` | Voice delegation |
 
 ## Development Guidelines
 
@@ -35,36 +81,47 @@ The Rokid glasses use **JBD 0.13" micro LED displays** (per eye):
 - Resolution: **640×480** (landscape) / **480×640** (portrait mode)
 - Pixel density: **~6,150 DPI** (extremely high - emulators cannot accurately simulate)
 - Monochrome green, 1500 nits brightness
-- Terminal sized to **64 columns × 31 rows**
 - Pure black background (transparent on AR display)
-- JetBrains Mono font for box-drawing characters
+- JetBrains Mono font
 
 **Emulator note**: A 5" emulator at 480×640 is ~160 DPI vs ~6,150 DPI on real glasses.
-Text will appear much larger on emulator than on actual device.
 
-### Gesture Modes
+### Glasses HUD Layout
 
-Three interaction modes, cycled via double-tap. Gestures are **unified** across modes:
+```
+┌─[TopBar]──────────────────────────────┐
+│ ● connected              12/42 lines  │
+├───────────────────────────────────────┤
+│ Assistant message (left, green)       │
+│       User message (right, light bg)  │
+│ Streaming...█                         │
+├───[Input]─────────────────────────────┤
+│ > current input text...               │
+├───[Menu Bar]──────────────────────────┤
+│ ↵Enter ⌫Clear ◎Sess ⬚Size AaFont …More │
+└───────────────────────────────────────┘
+```
 
-| Mode | Forward/Backward Swipe | Tap | Purpose |
-|------|------------------------|-----|---------|
-| **SCROLL** | Scroll up/down | Jump to end | Reading output |
-| **NAVIGATE** | Arrow up/down | Enter | Menu navigation |
-| **COMMAND** | Tab/Escape | Shift-Tab | Claude Code UI |
+HUD position cycles: Full → Bottom Half → Top Half
 
-**Touchpad directions:**
-- Forward (towards eyes) = scroll up / arrow up / tab
-- Backward (towards ear) = scroll down / arrow down / escape
+### Gesture Model
+
+Three focus areas: CONTENT, INPUT, MENU
+
+| Area | Swipe Fwd | Swipe Bwd | Tap | Double-tap | Long-press |
+|------|-----------|-----------|-----|------------|------------|
+| CONTENT | Scroll up | Scroll down | Jump to end | → INPUT | Voice |
+| INPUT | → CONTENT | → MENU | Submit | — | Voice |
+| MENU | Prev item | Next item | Execute | → INPUT | Voice |
 
 ### SDK Integration
 
 **Rokid CXR SDK** handles phone↔glasses Bluetooth communication:
-- Phone: `com.rokid.cxr:client-m:1.0.4`
+- Phone: `com.rokid.cxr:client-m:1.0.8`
 - Glasses: `com.rokid.cxr:cxr-service-bridge:1.0`
 
 SDK credentials required in `local.properties`:
 ```properties
-rokid.clientId=xxx
 rokid.clientSecret=xxx
 rokid.accessKey=xxx
 ```
@@ -80,127 +137,57 @@ Create glasses emulator: 480×640 resolution (portrait), 5.0" screen
 
 ## File Reference
 
-### Glasses App (Key Files)
+### Glasses App
 
 ```
-glasses-app/src/main/java/com/claudeglasses/glasses/
-├── HudActivity.kt              # Main activity, gesture routing
+glasses-app/src/main/java/com/clawsses/glasses/
+├── HudActivity.kt              # Main activity, gesture routing, message handling
 ├── GlassesApp.kt               # Application class
 ├── ui/
-│   ├── HudScreen.kt            # Compose HUD display
-│   └── theme/                  # Theme definitions
+│   ├── HudScreen.kt            # Compose chat HUD display
+│   └── theme/                   # Theme definitions
 ├── input/
 │   └── GestureHandler.kt       # Touchpad gesture detection
+├── voice/
+│   └── GlassesVoiceHandler.kt  # Voice delegation to phone
 ├── service/
 │   └── PhoneConnectionService.kt  # CXR-S bridge
 └── debug/
     └── DebugPhoneClient.kt     # WebSocket client for emulator
 ```
 
-### Phone App (Key Files)
+### Phone App
 
 ```
-phone-app/src/main/java/com/claudeglasses/phone/
+phone-app/src/main/java/com/clawsses/phone/
 ├── ui/screens/
-│   └── MainScreen.kt           # Main UI, command forwarding
-├── terminal/
-│   └── TerminalClient.kt       # WebSocket client to server
+│   └── MainScreen.kt           # Main UI, message forwarding
+├── openclaw/
+│   └── OpenClawClient.kt       # WebSocket client to OpenClaw Gateway
 ├── glasses/
 │   ├── GlassesConnectionManager.kt  # CXR-M or debug server
-│   └── RokidSdkManager.kt      # SDK initialization
+│   ├── RokidSdkManager.kt      # SDK initialization
+│   └── ApkInstaller.kt         # Glasses APK installation
 ├── voice/
 │   └── VoiceCommandHandler.kt  # Speech recognition
+├── service/
+│   └── GlassesConnectionService.kt  # Foreground service
 └── debug/
     └── DebugGlassesServer.kt   # WebSocket server for emulator
 ```
 
-### Server (Key Files)
-
-```
-server/src/
-└── index.js                    # WebSocket server, tmux management
-```
-
-## Message Protocol
-
-### Terminal Updates (Server → Phone → Glasses)
-
-```json
-{
-  "type": "terminal_update",
-  "lines": ["line1", "line2", ...],
-  "cursorPosition": 0,
-  "mode": "SCROLL"
-}
-```
-
-### Commands (Glasses → Phone → Server)
-
-```json
-{
-  "type": "command",
-  "command": "enter|escape|tab|shift_tab|up|down|left|right"
-}
-```
-
-### Key Events (Phone → Server)
-
-```json
-{
-  "type": "key",
-  "key": "enter|escape|tab|shift_tab|up|down|..."
-}
-```
-
-## Common Tasks
-
-### Adding a New Gesture
-
-1. Add to `GestureHandler.Gesture` enum
-2. Handle in `HudActivity.handleGesture()`
-3. Update hints in `HudScreen.GestureHints()`
-
-### Adding a New Command
-
-1. Add to server's `keyMap` in `server/src/index.js`
-2. Add to `TerminalClient.SpecialKey` enum (optional)
-3. Send via `terminalClient.sendKey("command_name")`
-
-### Modifying HUD Layout
-
-Edit `glasses-app/.../ui/HudScreen.kt`:
-- `HudScreen()` - Main composable
-- `StatusBar()` - Top overlay
-- `TerminalLine()` - Individual lines
-- `GestureHints()` - Bottom overlay
-- `HudColors` - Color palette
-
 ## Debugging Tips
-
-### Check Logs
 
 ```bash
 # Glasses app
 adb -s emulator-5556 logcat | grep -E "(GlassesApp|HudScreen|PhoneConnection)"
 
 # Phone app
-adb -s emulator-5554 logcat | grep -E "(MainScreen|TerminalClient|GlassesConnection)"
-
-# Server
-# Console output shows all WebSocket messages
+adb -s emulator-5554 logcat | grep -E "(MainScreen|OpenClawClient|GlassesConnection)"
 ```
-
-### Common Issues
-
-| Issue | Check |
-|-------|-------|
-| Tap not detected | Logcat for "Compose onTap" or "Gesture detected" |
-| Commands not reaching server | Check phone app "Received command from glasses" log |
-| Display not updating | Verify WebSocket connection state |
-| Font rendering issues | Ensure JetBrains Mono font is in `res/font/` |
 
 ## External Documentation
 
 - [Rokid SDK Reference](docs/ROKID.md) - Hardware specs, SDK APIs, gesture handling
-- [Rokid Developer Portal](https://ar.rokid.com) - SDK downloads and credentials
-- [Rokid GitHub](https://github.com/RokidGlass) - Official repositories
+- [OpenClaw Gateway Protocol](https://docs.openclaw.ai/gateway/protocol) - WebSocket protocol
+- [OpenClaw Streaming](https://docs.openclaw.ai/concepts/streaming) - Block streaming docs

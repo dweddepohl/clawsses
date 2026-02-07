@@ -1,0 +1,1042 @@
+package com.clawsses.phone.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.clawsses.phone.glasses.ApkInstaller
+import com.clawsses.phone.glasses.GlassesConnectionManager
+import com.clawsses.phone.glasses.RokidSdkManager
+import com.clawsses.phone.openclaw.DeviceIdentity
+import com.clawsses.phone.openclaw.OpenClawClient
+import com.clawsses.phone.voice.VoiceCommandHandler
+import com.clawsses.shared.ChatMessage
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Managers
+    val glassesManager = remember { GlassesConnectionManager(context) }
+    val deviceIdentity = remember { DeviceIdentity(context) }
+    val openClawClient = remember { OpenClawClient(deviceIdentity) }
+    val voiceHandler = remember { VoiceCommandHandler(context) }
+    val apkInstaller = remember { ApkInstaller(context) }
+
+    // State
+    val glassesState by glassesManager.connectionState.collectAsState()
+    val openClawState by openClawClient.connectionState.collectAsState()
+    val chatMessages by openClawClient.chatMessages.collectAsState()
+    val isListening by voiceHandler.isListening.collectAsState()
+    val installState by apkInstaller.installState.collectAsState()
+
+    // Persist OpenClaw settings in SharedPreferences
+    val prefs = remember { context.getSharedPreferences("clawsses", android.content.Context.MODE_PRIVATE) }
+    var openClawHost by remember {
+        mutableStateOf(prefs.getString("openclaw_host", "10.0.2.2") ?: "10.0.2.2")
+    }
+    var openClawPort by remember {
+        mutableStateOf(prefs.getString("openclaw_port", "18789") ?: "18789")
+    }
+    var openClawToken by remember {
+        mutableStateOf(prefs.getString("openclaw_token", "") ?: "")
+    }
+    var inputText by remember { mutableStateOf("") }
+    var showSettings by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    // Initialize voice handler and wire partial result callback
+    LaunchedEffect(Unit) {
+        voiceHandler.initialize()
+        voiceHandler.onPartialResult = { partialText ->
+            RokidSdkManager.sendAsrContent(partialText)
+            val stateMsg = org.json.JSONObject().apply {
+                put("type", "voice_state")
+                put("state", "recognizing")
+                put("text", partialText)
+            }
+            glassesManager.sendRawMessage(stateMsg.toString())
+        }
+    }
+
+    // Start/stop foreground service based on glasses connection state
+    LaunchedEffect(glassesState) {
+        when (glassesState) {
+            is GlassesConnectionManager.ConnectionState.Connected -> {
+                android.util.Log.i("MainScreen", "Glasses connected — starting foreground service")
+                com.clawsses.phone.service.GlassesConnectionService.start(context)
+            }
+            is GlassesConnectionManager.ConnectionState.Disconnected -> {
+                android.util.Log.i("MainScreen", "Glasses disconnected — stopping foreground service")
+                com.clawsses.phone.service.GlassesConnectionService.stop(context)
+            }
+            else -> {}
+        }
+    }
+
+    // Auto-scroll to bottom when new messages arrive
+    LaunchedEffect(chatMessages.size) {
+        if (chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(chatMessages.size - 1)
+        }
+    }
+
+    // Wire OpenClaw client callbacks to forward to glasses
+    LaunchedEffect(Unit) {
+        openClawClient.onChatMessage = { msg ->
+            glassesManager.sendRawMessage(msg.toJson())
+        }
+        openClawClient.onAgentThinking = { msg ->
+            glassesManager.sendRawMessage(msg.toJson())
+        }
+        openClawClient.onChatStream = { msg ->
+            glassesManager.sendRawMessage(msg.toJson())
+        }
+        openClawClient.onChatStreamEnd = { msg ->
+            glassesManager.sendRawMessage(msg.toJson())
+        }
+        openClawClient.onSessionList = { msg ->
+            glassesManager.sendRawMessage(msg.toJson())
+        }
+        openClawClient.onConnectionUpdate = { msg ->
+            glassesManager.sendRawMessage(msg.toJson())
+        }
+    }
+
+    // Handle AI scene events (glasses long-press triggers voice input)
+    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+    LaunchedEffect(Unit) {
+        glassesManager.onAiKeyDown = {
+            android.util.Log.i("MainScreen", ">>> AI key down from glasses - will start voice recognition")
+            mainHandler.postDelayed({
+                android.util.Log.i("MainScreen", ">>> Starting voice recognition on main thread")
+                RokidSdkManager.setCommunicationDevice()
+                startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = false)
+            }, 300)
+        }
+        glassesManager.onAiExit = {
+            android.util.Log.d("MainScreen", "AI scene exited on glasses (recognizer continues)")
+        }
+    }
+
+    // Handle messages from glasses and forward to OpenClaw
+    LaunchedEffect(Unit) {
+        glassesManager.onMessageFromGlasses = { message ->
+            try {
+                val json = org.json.JSONObject(message)
+                val type = json.optString("type", "")
+                when (type) {
+                    "user_input" -> {
+                        val text = json.optString("text", "")
+                        val image = json.optString("imageBase64", "").ifEmpty { null }
+                        android.util.Log.d("MainScreen", "Received user input from glasses (${text.length} chars)")
+                        if (text.isNotEmpty()) {
+                            openClawClient.sendMessage(text, image)
+                        }
+                    }
+                    "start_voice" -> {
+                        android.util.Log.d("MainScreen", "Glasses requested voice recognition start")
+                        com.clawsses.phone.glasses.RokidSdkManager.setCommunicationDevice()
+                        voiceHandler.startListening { result ->
+                            com.clawsses.phone.glasses.RokidSdkManager.clearCommunicationDevice()
+                            when (result) {
+                                is VoiceCommandHandler.VoiceResult.Text -> {
+                                    android.util.Log.d("MainScreen", "Voice result text: ${result.text.take(100)}")
+                                    val resultMsg = org.json.JSONObject().apply {
+                                        put("type", "voice_result")
+                                        put("result_type", "text")
+                                        put("text", result.text)
+                                    }
+                                    glassesManager.sendRawMessage(resultMsg.toString())
+                                    openClawClient.sendMessage(result.text)
+                                }
+                                is VoiceCommandHandler.VoiceResult.Command -> {
+                                    android.util.Log.d("MainScreen", "Voice result command: ${result.command}")
+                                    val resultMsg = org.json.JSONObject().apply {
+                                        put("type", "voice_result")
+                                        put("result_type", "command")
+                                        put("text", result.command)
+                                    }
+                                    glassesManager.sendRawMessage(resultMsg.toString())
+                                }
+                                is VoiceCommandHandler.VoiceResult.Error -> {
+                                    android.util.Log.e("MainScreen", "Voice result error: ${result.message}")
+                                    val resultMsg = org.json.JSONObject().apply {
+                                        put("type", "voice_result")
+                                        put("result_type", "error")
+                                        put("text", result.message)
+                                    }
+                                    glassesManager.sendRawMessage(resultMsg.toString())
+                                }
+                            }
+                        }
+                        val stateMsg = org.json.JSONObject().apply {
+                            put("type", "voice_state")
+                            put("state", "listening")
+                        }
+                        glassesManager.sendRawMessage(stateMsg.toString())
+                    }
+                    "cancel_voice" -> {
+                        android.util.Log.d("MainScreen", "Glasses requested voice recognition cancel")
+                        voiceHandler.stopListening()
+                        com.clawsses.phone.glasses.RokidSdkManager.clearCommunicationDevice()
+                        val stateMsg = org.json.JSONObject().apply {
+                            put("type", "voice_state")
+                            put("state", "idle")
+                        }
+                        glassesManager.sendRawMessage(stateMsg.toString())
+                    }
+                    "list_sessions" -> {
+                        android.util.Log.d("MainScreen", "Requesting session list for glasses")
+                        openClawClient.requestSessions()
+                    }
+                    "switch_session" -> {
+                        val sessionId = json.optString("sessionId", "")
+                        android.util.Log.d("MainScreen", "Switching to session: $sessionId")
+                        if (sessionId.isNotEmpty()) {
+                            openClawClient.switchSession(sessionId)
+                        }
+                    }
+                    "slash_command" -> {
+                        val command = json.optString("command", "")
+                        android.util.Log.d("MainScreen", "Slash command from glasses: $command")
+                        if (command.isNotEmpty()) {
+                            openClawClient.sendSlashCommand(command)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainScreen", "Error parsing glasses message", e)
+            }
+        }
+    }
+
+    // Cleanup
+    DisposableEffect(Unit) {
+        onDispose {
+            glassesManager.disconnect()
+            openClawClient.cleanup()
+            voiceHandler.cleanup()
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Clawsses") },
+                actions = {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Default.Settings, "Settings")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            BottomAppBar {
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(8.dp),
+                    placeholder = { Text("Type message...") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (inputText.isNotBlank()) {
+                                openClawClient.sendMessage(inputText)
+                                inputText = ""
+                            }
+                        }
+                    ),
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace)
+                )
+
+                // Voice button
+                IconButton(
+                    onClick = {
+                        if (isListening) {
+                            voiceHandler.stopListening()
+                        } else {
+                            voiceHandler.startListening { result ->
+                                when (result) {
+                                    is VoiceCommandHandler.VoiceResult.Text -> {
+                                        openClawClient.sendMessage(result.text)
+                                    }
+                                    is VoiceCommandHandler.VoiceResult.Command -> {
+                                        // Voice commands handled by glasses
+                                    }
+                                    is VoiceCommandHandler.VoiceResult.Error -> {
+                                        // Handle error
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Icon(
+                        if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                        contentDescription = "Voice input",
+                        tint = if (isListening) Color.Red else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Send button
+                IconButton(
+                    onClick = {
+                        if (inputText.isNotBlank()) {
+                            openClawClient.sendMessage(inputText)
+                            inputText = ""
+                        }
+                    }
+                ) {
+                    Icon(Icons.Default.Send, "Send")
+                }
+            }
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            // Connection status bar
+            ConnectionStatusBar(
+                glassesState = glassesState,
+                openClawState = openClawState,
+                onConnectGlasses = { glassesManager.startScanning() },
+                onConnectOpenClaw = {
+                    val portNum = openClawPort.toIntOrNull() ?: 18789
+                    openClawClient.connect(openClawHost, portNum, openClawToken)
+                }
+            )
+
+            // Chat messages
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(Color(0xFF1E1E1E))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                if (chatMessages.isEmpty()) {
+                    Text(
+                        "No messages yet. Connect to OpenClaw and send a message.",
+                        color = Color.Gray,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(chatMessages) { msg ->
+                            ChatMessageRow(msg)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Debug mode state
+    val debugModeEnabled by glassesManager.debugModeEnabled.collectAsState()
+
+    // Settings dialog
+    if (showSettings) {
+        SettingsDialog(
+            openClawHost = openClawHost,
+            onHostChange = {
+                openClawHost = it
+                prefs.edit().putString("openclaw_host", it).apply()
+            },
+            openClawPort = openClawPort,
+            onPortChange = {
+                openClawPort = it
+                prefs.edit().putString("openclaw_port", it).apply()
+            },
+            openClawToken = openClawToken,
+            onTokenChange = {
+                openClawToken = it
+                prefs.edit().putString("openclaw_token", it).apply()
+            },
+            debugModeEnabled = debugModeEnabled,
+            onDebugModeChange = { enabled ->
+                if (enabled) glassesManager.enableDebugMode()
+                else glassesManager.disableDebugMode()
+            },
+            onDismiss = {
+                showSettings = false
+                if (installState is ApkInstaller.InstallState.Success ||
+                    installState is ApkInstaller.InstallState.Error) {
+                    apkInstaller.resetState()
+                }
+            },
+            installState = installState,
+            apkInstaller = apkInstaller,
+            onCancelInstall = { apkInstaller.cancelInstallation() },
+            onOpenGlassesApp = { apkInstaller.openGlassesApp() },
+            glassesManager = glassesManager,
+            glassesState = glassesState,
+        )
+    }
+}
+
+@Composable
+fun ChatMessageRow(msg: ChatMessage) {
+    val isUser = msg.role == "user"
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        Text(
+            text = msg.content,
+            color = if (isUser) Color(0xFF4EC9B0) else Color(0xFFD4D4D4),
+            fontSize = 13.sp,
+            modifier = Modifier
+                .background(
+                    if (isUser) Color(0xFF2A3A2A) else Color.Transparent,
+                    shape = MaterialTheme.shapes.small
+                )
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .fillMaxWidth(0.85f)
+        )
+    }
+}
+
+@Composable
+fun ConnectionStatusBar(
+    glassesState: GlassesConnectionManager.ConnectionState,
+    openClawState: OpenClawClient.ConnectionState,
+    onConnectGlasses: () -> Unit,
+    onConnectOpenClaw: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Glasses status
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                when (glassesState) {
+                    is GlassesConnectionManager.ConnectionState.Connected -> Icons.Default.CheckCircle
+                    is GlassesConnectionManager.ConnectionState.Connecting,
+                    is GlassesConnectionManager.ConnectionState.Scanning -> Icons.Default.Sync
+                    is GlassesConnectionManager.ConnectionState.Error -> Icons.Default.Error
+                    else -> Icons.Default.RadioButtonUnchecked
+                },
+                contentDescription = null,
+                tint = when (glassesState) {
+                    is GlassesConnectionManager.ConnectionState.Connected -> Color.Green
+                    is GlassesConnectionManager.ConnectionState.Connecting,
+                    is GlassesConnectionManager.ConnectionState.Scanning -> Color.Yellow
+                    is GlassesConnectionManager.ConnectionState.Error -> Color.Red
+                    else -> Color.Gray
+                },
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.Default.Visibility,
+                contentDescription = "Glasses",
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            if (glassesState is GlassesConnectionManager.ConnectionState.Disconnected) {
+                TextButton(
+                    onClick = onConnectGlasses,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text("Connect", fontSize = 12.sp)
+                }
+            } else {
+                Text(
+                    text = when (glassesState) {
+                        is GlassesConnectionManager.ConnectionState.Connected -> "Connected"
+                        is GlassesConnectionManager.ConnectionState.Connecting -> "Connecting..."
+                        is GlassesConnectionManager.ConnectionState.Scanning -> "Scanning..."
+                        is GlassesConnectionManager.ConnectionState.Error -> "Error"
+                        else -> ""
+                    },
+                    fontSize = 11.sp,
+                    color = Color.Gray
+                )
+            }
+        }
+
+        // OpenClaw status
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier.weight(1f)
+        ) {
+            if (openClawState is OpenClawClient.ConnectionState.Disconnected) {
+                TextButton(
+                    onClick = onConnectOpenClaw,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text("Connect", fontSize = 12.sp)
+                }
+            } else {
+                Text(
+                    text = when (openClawState) {
+                        is OpenClawClient.ConnectionState.Connected -> "Connected"
+                        is OpenClawClient.ConnectionState.Connecting -> "Connecting..."
+                        is OpenClawClient.ConnectionState.Authenticating -> "Authenticating..."
+                        is OpenClawClient.ConnectionState.PairingRequired -> "Pairing required"
+                        is OpenClawClient.ConnectionState.Error -> (openClawState as OpenClawClient.ConnectionState.Error).message.take(40)
+                        else -> ""
+                    },
+                    fontSize = 11.sp,
+                    color = when (openClawState) {
+                        is OpenClawClient.ConnectionState.Error -> Color.Red
+                        is OpenClawClient.ConnectionState.PairingRequired -> Color(0xFFFF8800)
+                        else -> Color.Gray
+                    }
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                Icons.Default.Cloud,
+                contentDescription = "OpenClaw",
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                when (openClawState) {
+                    is OpenClawClient.ConnectionState.Connected -> Icons.Default.CheckCircle
+                    is OpenClawClient.ConnectionState.Connecting,
+                    is OpenClawClient.ConnectionState.Authenticating -> Icons.Default.Sync
+                    is OpenClawClient.ConnectionState.PairingRequired -> Icons.Default.Warning
+                    is OpenClawClient.ConnectionState.Error -> Icons.Default.Error
+                    else -> Icons.Default.RadioButtonUnchecked
+                },
+                contentDescription = null,
+                tint = when (openClawState) {
+                    is OpenClawClient.ConnectionState.Connected -> Color.Green
+                    is OpenClawClient.ConnectionState.Connecting,
+                    is OpenClawClient.ConnectionState.Authenticating -> Color.Yellow
+                    is OpenClawClient.ConnectionState.PairingRequired -> Color(0xFFFF8800)
+                    is OpenClawClient.ConnectionState.Error -> Color.Red
+                    else -> Color.Gray
+                },
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingsDialog(
+    openClawHost: String,
+    onHostChange: (String) -> Unit,
+    openClawPort: String,
+    onPortChange: (String) -> Unit,
+    openClawToken: String,
+    onTokenChange: (String) -> Unit,
+    debugModeEnabled: Boolean,
+    onDebugModeChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+    installState: ApkInstaller.InstallState,
+    apkInstaller: ApkInstaller,
+    onCancelInstall: () -> Unit,
+    onOpenGlassesApp: () -> Unit,
+    glassesManager: GlassesConnectionManager? = null,
+    glassesState: GlassesConnectionManager.ConnectionState? = null,
+) {
+    var showDeviceList by remember { mutableStateOf(false) }
+    val discoveredDevices = glassesManager?.discoveredDevices?.collectAsState()?.value ?: emptyList()
+    val wifiP2PConnected = glassesManager?.wifiP2PConnected?.collectAsState()?.value ?: false
+    val sdkConnected = glassesState is GlassesConnectionManager.ConnectionState.Connected && !debugModeEnabled
+
+    AlertDialog(
+        onDismissRequest = {
+            if (installState is ApkInstaller.InstallState.Idle ||
+                installState is ApkInstaller.InstallState.Success ||
+                installState is ApkInstaller.InstallState.Error) {
+                glassesManager?.stopScanning()
+                onDismiss()
+            }
+        },
+        title = { Text("Settings") },
+        text = {
+            LazyColumn {
+                item {
+                    // OpenClaw connection settings
+                    Text("OpenClaw Server", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = openClawHost,
+                            onValueChange = onHostChange,
+                            label = { Text("Host / IP") },
+                            modifier = Modifier.weight(2f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = openClawPort,
+                            onValueChange = onPortChange,
+                            label = { Text("Port") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = openClawToken,
+                        onValueChange = onTokenChange,
+                        label = { Text("Gateway Token") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // Debug mode toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Debug Mode", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Use WebSocket instead of Bluetooth for glasses",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+                        Switch(
+                            checked = debugModeEnabled,
+                            onCheckedChange = onDebugModeChange
+                        )
+                    }
+
+                    if (debugModeEnabled) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Glasses app connects to port 8081.\n" +
+                            "Run: adb forward tcp:8081 tcp:8081",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    // ============== Glasses Connection Section ==============
+                    if (!debugModeEnabled) {
+                        Text("Glasses Connection", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                when (glassesState) {
+                                    is GlassesConnectionManager.ConnectionState.Connected -> Icons.Default.CheckCircle
+                                    is GlassesConnectionManager.ConnectionState.Connecting,
+                                    is GlassesConnectionManager.ConnectionState.Scanning,
+                                    is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> Icons.Default.Sync
+                                    is GlassesConnectionManager.ConnectionState.Error -> Icons.Default.Error
+                                    else -> Icons.Default.BluetoothDisabled
+                                },
+                                contentDescription = null,
+                                tint = when (glassesState) {
+                                    is GlassesConnectionManager.ConnectionState.Connected -> Color(0xFF4CAF50)
+                                    is GlassesConnectionManager.ConnectionState.Connecting,
+                                    is GlassesConnectionManager.ConnectionState.Scanning,
+                                    is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> Color(0xFFFFC107)
+                                    is GlassesConnectionManager.ConnectionState.Error -> Color(0xFFF44336)
+                                    else -> Color.Gray
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                when (glassesState) {
+                                    is GlassesConnectionManager.ConnectionState.Connected ->
+                                        "Connected: ${glassesState.deviceName}"
+                                    is GlassesConnectionManager.ConnectionState.Connecting -> "Connecting..."
+                                    is GlassesConnectionManager.ConnectionState.Scanning -> "Scanning for glasses..."
+                                    is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> "Setting up WiFi P2P..."
+                                    is GlassesConnectionManager.ConnectionState.Error -> "Error: ${glassesState.message}"
+                                    else -> "Not connected"
+                                },
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+
+                        if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
+                            Spacer(Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (wifiP2PConnected) Icons.Default.WifiTethering else Icons.Default.WifiTetheringOff,
+                                    contentDescription = null,
+                                    tint = if (wifiP2PConnected) Color(0xFF4CAF50) else Color.Gray,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    if (wifiP2PConnected) "WiFi P2P: Connected" else "WiFi P2P: Not connected",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (wifiP2PConnected) Color(0xFF4CAF50) else Color.Gray
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val isScanning = glassesState is GlassesConnectionManager.ConnectionState.Scanning
+
+                            OutlinedButton(
+                                onClick = {
+                                    if (isScanning) glassesManager?.stopScanning()
+                                    else {
+                                        glassesManager?.startScanning()
+                                        showDeviceList = true
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    if (isScanning) Icons.Default.Stop else Icons.Default.BluetoothSearching,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (isScanning) "Stop" else "Scan")
+                            }
+
+                            if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
+                                if (!wifiP2PConnected) {
+                                    Button(
+                                        onClick = { glassesManager?.initWifiP2P() },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.WifiTethering, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("WiFi P2P")
+                                    }
+                                }
+
+                                OutlinedButton(
+                                    onClick = { glassesManager?.disconnect() },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Disconnect")
+                                }
+                            }
+                        }
+
+                        // Clear cached glasses SN
+                        if (RokidSdkManager.hasCachedSn()) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { RokidSdkManager.clearCachedSn() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Clear saved glasses SN")
+                            }
+                            Text(
+                                "Use if switching to different glasses",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+
+                        if (showDeviceList && discoveredDevices.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Found ${discoveredDevices.size} device(s):",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                            Spacer(Modifier.height(4.dp))
+
+                            discoveredDevices.forEach { device ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(device.name, style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            "${device.address} (RSSI: ${device.rssi})",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            glassesManager?.connectToDevice(device)
+                                            showDeviceList = false
+                                        }
+                                    ) {
+                                        Text("Connect")
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(24.dp))
+                    }
+
+                    // ============== Installation Section ==============
+                    if (sdkConnected) {
+                        Text("Glasses App Installation", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(8.dp))
+
+                        Text(
+                            "Install via Bluetooth + WiFi P2P",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(Modifier.height(8.dp))
+
+                        Button(
+                            onClick = { apkInstaller.installViaSdk() },
+                            enabled = installState is ApkInstaller.InstallState.Idle ||
+                                     installState is ApkInstaller.InstallState.Error ||
+                                     installState is ApkInstaller.InstallState.Success,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Install via SDK")
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+
+                        InstallationSection(
+                            installState = installState,
+                            onCancel = onCancelInstall,
+                            onOpenApp = onOpenGlassesApp,
+                            onRetry = { apkInstaller.installViaSdk() }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    glassesManager?.stopScanning()
+                    onDismiss()
+                },
+                enabled = installState is ApkInstaller.InstallState.Idle ||
+                         installState is ApkInstaller.InstallState.Success ||
+                         installState is ApkInstaller.InstallState.Error
+            ) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun InstallationSection(
+    installState: ApkInstaller.InstallState,
+    onCancel: () -> Unit,
+    onOpenApp: () -> Unit,
+    onRetry: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        when (installState) {
+            is ApkInstaller.InstallState.Idle -> {}
+            is ApkInstaller.InstallState.CheckingConnection -> InstallProgressRow("Connecting to glasses...")
+            is ApkInstaller.InstallState.InitializingWifiP2P -> InstallProgressRow("Establishing WiFi P2P connection...")
+            is ApkInstaller.InstallState.PreparingApk -> InstallProgressRow("Preparing APK...")
+            is ApkInstaller.InstallState.Uploading -> {
+                InstallProgressRow(installState.message)
+                if (installState.progress >= 0) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("${installState.progress}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+            }
+            is ApkInstaller.InstallState.Installing -> {
+                InstallProgressRow(installState.message)
+                Spacer(Modifier.height(4.dp))
+                Text("Do not disconnect the glasses", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            }
+            is ApkInstaller.InstallState.Success -> {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(installState.message, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF4CAF50))
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onOpenApp, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Open App on Glasses")
+                }
+            }
+            is ApkInstaller.InstallState.Error -> {
+                Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Error, contentDescription = null, tint = Color(0xFFF44336), modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(installState.message, style = MaterialTheme.typography.bodySmall, color = Color(0xFFF44336))
+                }
+                if (installState.canRetry) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Try Again")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstallProgressRow(message: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        Spacer(Modifier.width(12.dp))
+        Text(message, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/**
+ * Start voice recognition with automatic retry on error.
+ */
+private fun startVoiceRecognition(
+    voiceHandler: VoiceCommandHandler,
+    openClawClient: OpenClawClient,
+    glassesManager: GlassesConnectionManager,
+    mainHandler: android.os.Handler,
+    isRetry: Boolean
+) {
+    voiceHandler.startListening { result ->
+        android.util.Log.i("MainScreen", ">>> Voice result received (retry=$isRetry): $result")
+        when (result) {
+            is VoiceCommandHandler.VoiceResult.Text -> {
+                RokidSdkManager.clearCommunicationDevice()
+                if (result.text.isNotEmpty()) {
+                    android.util.Log.i("MainScreen", "AI voice text: ${result.text.take(100)}")
+                    RokidSdkManager.sendAsrContent(result.text)
+                    RokidSdkManager.notifyAsrEnd()
+                    openClawClient.sendMessage(result.text)
+                    val resultMsg = org.json.JSONObject().apply {
+                        put("type", "voice_result")
+                        put("result_type", "text")
+                        put("text", result.text)
+                    }
+                    glassesManager.sendRawMessage(resultMsg.toString())
+                    mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 1500)
+                } else {
+                    android.util.Log.i("MainScreen", "AI voice: no speech detected, dismissing")
+                    RokidSdkManager.notifyAsrNone()
+                    mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 500)
+                }
+            }
+            is VoiceCommandHandler.VoiceResult.Command -> {
+                RokidSdkManager.clearCommunicationDevice()
+                android.util.Log.i("MainScreen", "AI voice command: ${result.command}")
+                RokidSdkManager.sendAsrContent(result.command)
+                RokidSdkManager.notifyAsrEnd()
+                val resultMsg = org.json.JSONObject().apply {
+                    put("type", "voice_result")
+                    put("result_type", "command")
+                    put("text", result.command)
+                }
+                glassesManager.sendRawMessage(resultMsg.toString())
+                mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 1000)
+            }
+            is VoiceCommandHandler.VoiceResult.Error -> {
+                if (!isRetry) {
+                    android.util.Log.w("MainScreen", "Voice error '${result.message}', retrying with phone mic...")
+                    RokidSdkManager.clearCommunicationDevice()
+                    mainHandler.postDelayed({
+                        startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = true)
+                    }, 200)
+                } else {
+                    android.util.Log.e("MainScreen", "AI voice error (after retry): ${result.message}")
+                    RokidSdkManager.clearCommunicationDevice()
+                    RokidSdkManager.notifyAsrError()
+                    val resultMsg = org.json.JSONObject().apply {
+                        put("type", "voice_result")
+                        put("result_type", "error")
+                        put("text", result.message)
+                    }
+                    glassesManager.sendRawMessage(resultMsg.toString())
+                    mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 2000)
+                }
+            }
+        }
+    }
+}

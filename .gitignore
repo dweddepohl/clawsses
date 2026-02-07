@@ -37,6 +37,9 @@ shared/build/
 server/node_modules/
 server/.env
 
+# Reference repos
+.openclaw-ref/
+
 # OS files
 .DS_Store
 Thumbs.db

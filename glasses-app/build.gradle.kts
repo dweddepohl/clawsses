@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.claudeglasses.glasses"
+    namespace = "com.clawsses.glasses"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.claudeglasses.glasses"
+        applicationId = "com.clawsses.glasses"
         minSdk = 28  // Required for CXR-S SDK
         targetSdk = 34
         versionCode = 1

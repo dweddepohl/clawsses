@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.claudeglasses.shared"
+    namespace = "com.clawsses.shared"
     compileSdk = 34
 
     defaultConfig {

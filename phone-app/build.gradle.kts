@@ -15,11 +15,11 @@ val localProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.claudeglasses.phone"
+    namespace = "com.clawsses.phone"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.claudeglasses.phone"
+        applicationId = "com.clawsses.phone"
         minSdk = 28  // Required by CXR-M SDK
         targetSdk = 34
         versionCode = 1

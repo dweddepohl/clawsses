@@ -83,7 +83,8 @@ enum class MenuBarItem(val icon: String, val label: String) {
     SESSION("\u25CE", "Sess"),
     SIZE("\u2588", "Size"),  // Icon overridden dynamically based on next HudPosition
     FONT("Aa", "Font"),
-    MORE("\u2026", "More")
+    MORE("\u2026", "More"),
+    EXIT("\u2715", "Exit")
 }
 
 /**

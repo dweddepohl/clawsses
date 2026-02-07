@@ -401,6 +401,9 @@ class HudActivity : ComponentActivity() {
                     selectedMoreIndex = 0
                 )
             }
+            MenuBarItem.EXIT -> {
+                finishAffinity()
+            }
         }
     }
 

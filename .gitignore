@@ -1,0 +1,42 @@
+# Secrets - NEVER COMMIT
+local.properties
+*.keystore
+*.jks
+
+# Claude / tool config
+.claude/
+.claude_settings.json
+.kanblam/
+.worktrees/
+worktrees/
+.auto-claude/
+DEVELOPER_BRIEFING.md
+
+# Android Studio
+.idea/
+.gradle/
+build/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Phone app
+phone-app/build/
+phone-app/.cxx/
+phone-app/src/main/assets/glasses-app-release.apk
+
+# Glasses app
+glasses-app/build/
+glasses-app/.cxx/
+
+# Shared module
+shared/build/
+
+# Server
+server/node_modules/
+server/.env
+
+# OS files
+.DS_Store
+Thumbs.db

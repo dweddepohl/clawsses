@@ -1,0 +1,19 @@
+{
+  "name": "claude-glasses-server",
+  "version": "1.0.0",
+  "description": "WebSocket server that wraps Claude Code for glasses terminal",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "ws": "^8.16.0",
+    "strip-ansi": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

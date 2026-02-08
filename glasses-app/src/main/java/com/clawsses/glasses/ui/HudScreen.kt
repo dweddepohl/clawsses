@@ -833,7 +833,9 @@ private fun SessionPickerOverlay(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(24.dp)
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(24.dp)
         ) {
             Text(
                 text = "SELECT SESSION",

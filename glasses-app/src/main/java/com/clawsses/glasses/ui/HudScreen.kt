@@ -686,7 +686,13 @@ private fun PhotoIndicatorStrip(
                     .size(width = 36.dp, height = 27.dp)
                     .border(1.dp, HudColors.green, RoundedCornerShape(2.dp)),
                 contentScale = ContentScale.Crop,
-                colorFilter = ColorFilter.tint(HudColors.green, BlendMode.SrcAtop)
+                // Map grayscale luminance to green: zero out R/B, keep G from luminance
+                colorFilter = ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix(floatArrayOf(
+                    0f, 0f, 0f, 0f, 0f,   // R = 0
+                    0.3f, 0.59f, 0.11f, 0f, 0f, // G = luminance
+                    0f, 0f, 0f, 0f, 0f,   // B = 0
+                    0f, 0f, 0f, 1f, 0f    // A = unchanged
+                )))
             )
             Text(
                 text = "[PHOTO]",

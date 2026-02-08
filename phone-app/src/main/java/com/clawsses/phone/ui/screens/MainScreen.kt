@@ -1430,9 +1430,28 @@ private fun createThumbnailBase64(imageBytes: ByteArray, maxWidth: Int, maxHeigh
     val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
         ?: return ""
     val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, maxWidth, maxHeight, true)
-    val stream = java.io.ByteArrayOutputStream()
-    scaled.compress(android.graphics.Bitmap.CompressFormat.WEBP, 60, stream)
+    // Convert to high-contrast grayscale for the monochrome green glasses display.
+    // Store luminance in alpha channel so glasses can tint it green.
+    val grayscale = android.graphics.Bitmap.createBitmap(scaled.width, scaled.height, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(grayscale)
+    val paint = android.graphics.Paint()
+    // Grayscale color matrix
+    val cm = android.graphics.ColorMatrix()
+    cm.setSaturation(0f)
+    // Boost contrast: scale by 1.8, offset by -100
+    val contrast = android.graphics.ColorMatrix(floatArrayOf(
+        1.8f, 0f, 0f, 0f, -100f,
+        0f, 1.8f, 0f, 0f, -100f,
+        0f, 0f, 1.8f, 0f, -100f,
+        0f, 0f, 0f, 1f, 0f
+    ))
+    cm.postConcat(contrast)
+    paint.colorFilter = android.graphics.ColorMatrixColorFilter(cm)
+    canvas.drawBitmap(scaled, 0f, 0f, paint)
     if (scaled !== bitmap) bitmap.recycle()
     scaled.recycle()
+    val stream = java.io.ByteArrayOutputStream()
+    grayscale.compress(android.graphics.Bitmap.CompressFormat.WEBP, 60, stream)
+    grayscale.recycle()
     return android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
 }

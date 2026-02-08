@@ -101,7 +101,7 @@ fun MainScreen() {
     var inputText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var showSessionPicker by remember { mutableStateOf(false) }
-    var pendingPhotoBase64 by remember { mutableStateOf<String?>(null) }
+    var pendingPhotos by remember { mutableStateOf<List<String>>(emptyList()) }
     val listState = rememberLazyListState()
 
     // Initialize voice handler and query available languages
@@ -190,7 +190,7 @@ fun MainScreen() {
             mainHandler.postDelayed({
                 android.util.Log.i("MainScreen", ">>> Starting voice recognition on main thread")
                 RokidSdkManager.setCommunicationDevice()
-                startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = false, languageTag = voiceLanguageManager.getActiveLanguageTag(), pendingPhoto = { pendingPhotoBase64 }, onPhotoConsumed = { pendingPhotoBase64 = null })
+                startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = false, languageTag = voiceLanguageManager.getActiveLanguageTag(), pendingPhotos = { pendingPhotos }, onPhotosConsumed = { pendingPhotos = emptyList() })
             }, 300)
         }
         glassesManager.onAiExit = {
@@ -207,13 +207,12 @@ fun MainScreen() {
                 when (type) {
                     "user_input" -> {
                         val text = json.optString("text", "")
-                        // Use imageBase64 from glasses (debug mode) or pending photo (production)
-                        val image = json.optString("imageBase64", "").ifEmpty { null } ?: pendingPhotoBase64
-                        android.util.Log.d("MainScreen", "Received user input from glasses (${text.length} chars, hasImage=${image != null})")
+                        val images = pendingPhotos.ifEmpty { null }
+                        android.util.Log.d("MainScreen", "Received user input from glasses (${text.length} chars, photos=${pendingPhotos.size})")
                         if (text.isNotEmpty()) {
-                            openClawClient.sendMessage(text, image)
+                            openClawClient.sendMessage(text, images)
                         }
-                        pendingPhotoBase64 = null
+                        pendingPhotos = emptyList()
                     }
                     "start_voice" -> {
                         android.util.Log.d("MainScreen", "Glasses requested voice recognition start")
@@ -229,8 +228,8 @@ fun MainScreen() {
                                         put("text", result.text)
                                     }
                                     glassesManager.sendRawMessage(resultMsg.toString())
-                                    openClawClient.sendMessage(result.text, pendingPhotoBase64)
-                                    pendingPhotoBase64 = null
+                                    openClawClient.sendMessage(result.text, pendingPhotos.ifEmpty { null })
+                                    pendingPhotos = emptyList()
                                 }
                                 is VoiceCommandHandler.VoiceResult.Command -> {
                                     android.util.Log.d("MainScreen", "Voice result command: ${result.command}")
@@ -306,7 +305,7 @@ fun MainScreen() {
                                 android.util.Log.d("MainScreen", "Photo callback: status=$status, bytes=${photoBytes?.size}")
                                 if (photoBytes != null && photoBytes.isNotEmpty()) {
                                     val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
-                                    pendingPhotoBase64 = base64
+                                    pendingPhotos = pendingPhotos + base64
                                     val thumbnail = createThumbnailBase64(photoBytes, 80, 60)
                                     val resultMsg = org.json.JSONObject().apply {
                                         put("type", "photo_result")
@@ -329,7 +328,13 @@ fun MainScreen() {
                         RokidSdkManager.takeGlassPhotoGlobal(640, 480, 75)
                     }
                     "remove_photo" -> {
-                        pendingPhotoBase64 = null
+                        val all = json.optBoolean("all", false)
+                        val index = json.optInt("index", -1)
+                        if (all) {
+                            pendingPhotos = emptyList()
+                        } else if (index in pendingPhotos.indices) {
+                            pendingPhotos = pendingPhotos.toMutableList().apply { removeAt(index) }
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -372,65 +377,50 @@ fun MainScreen() {
                     keyboardActions = KeyboardActions(
                         onSend = {
                             if (inputText.isNotBlank()) {
-                                openClawClient.sendMessage(inputText)
+                                openClawClient.sendMessage(inputText, pendingPhotos.ifEmpty { null })
                                 inputText = ""
+                                pendingPhotos = emptyList()
                             }
                         }
                     ),
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace)
                 )
 
-                // Camera button — captures photo from glasses camera
+                // Camera button — always takes a new photo, adds to pending list
                 IconButton(
                     onClick = {
-                        if (pendingPhotoBase64 != null) {
-                            // Clear pending photo
-                            pendingPhotoBase64 = null
-                            val resultMsg = org.json.JSONObject().apply {
-                                put("type", "photo_result")
-                                put("status", "cleared")
-                            }
-                            glassesManager.sendRawMessage(resultMsg.toString())
-                            android.util.Log.d("MainScreen", "Cleared pending photo")
-                        } else {
-                            android.util.Log.d("MainScreen", "Taking photo from glasses camera")
-                            android.util.Log.d("MainScreen", "SDK initialized=${RokidSdkManager.isReady()}, connected=${RokidSdkManager.isConnected()}")
-                            android.widget.Toast.makeText(context, "Capturing photo...", android.widget.Toast.LENGTH_SHORT).show()
-                            RokidSdkManager.onPhotoResult = { status, photoBytes ->
-                                mainHandler.post {
-                                    android.util.Log.d("MainScreen", "Photo callback: status=$status, bytes=${photoBytes?.size}")
-                                    if (photoBytes != null && photoBytes.isNotEmpty()) {
-                                        val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
-                                        pendingPhotoBase64 = base64
-                                        android.util.Log.d("MainScreen", "Photo captured: ${photoBytes.size} bytes")
-                                        android.widget.Toast.makeText(context, "Photo captured! ${photoBytes.size} bytes", android.widget.Toast.LENGTH_SHORT).show()
-                                        val thumbnail = createThumbnailBase64(photoBytes, 80, 60)
-                                        val resultMsg = org.json.JSONObject().apply {
-                                            put("type", "photo_result")
-                                            put("status", "captured")
-                                            put("thumbnail", thumbnail)
-                                        }
-                                        glassesManager.sendRawMessage(resultMsg.toString())
-                                    } else {
-                                        android.util.Log.e("MainScreen", "Photo capture failed: status=$status")
-                                        android.widget.Toast.makeText(context, "Photo failed: $status", android.widget.Toast.LENGTH_LONG).show()
+                        android.util.Log.d("MainScreen", "Taking photo from glasses camera")
+                        android.widget.Toast.makeText(context, "Capturing photo...", android.widget.Toast.LENGTH_SHORT).show()
+                        RokidSdkManager.onPhotoResult = { status, photoBytes ->
+                            mainHandler.post {
+                                android.util.Log.d("MainScreen", "Photo callback: status=$status, bytes=${photoBytes?.size}")
+                                if (photoBytes != null && photoBytes.isNotEmpty()) {
+                                    val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
+                                    pendingPhotos = pendingPhotos + base64
+                                    android.util.Log.d("MainScreen", "Photo added (total: ${pendingPhotos.size})")
+                                    android.widget.Toast.makeText(context, "Photo ${pendingPhotos.size} captured!", android.widget.Toast.LENGTH_SHORT).show()
+                                    val thumbnail = createThumbnailBase64(photoBytes, 80, 60)
+                                    val resultMsg = org.json.JSONObject().apply {
+                                        put("type", "photo_result")
+                                        put("status", "captured")
+                                        put("thumbnail", thumbnail)
                                     }
-                                    RokidSdkManager.onPhotoResult = null
+                                    glassesManager.sendRawMessage(resultMsg.toString())
+                                } else {
+                                    android.util.Log.e("MainScreen", "Photo capture failed: status=$status")
+                                    android.widget.Toast.makeText(context, "Photo failed: $status", android.widget.Toast.LENGTH_LONG).show()
                                 }
+                                RokidSdkManager.onPhotoResult = null
                             }
-                            // Use takeGlassPhotoGlobal — one-shot capture that does NOT require
-                            // entering AI scene mode (openGlassCamera+takeGlassPhoto need active AI scene)
-                            val status = RokidSdkManager.takeGlassPhotoGlobal(640, 480, 75)
-                            android.util.Log.d("MainScreen", "takeGlassPhotoGlobal returned: $status")
-                            android.widget.Toast.makeText(context, "takeGlassPhotoGlobal=$status", android.widget.Toast.LENGTH_LONG).show()
                         }
+                        RokidSdkManager.takeGlassPhotoGlobal(640, 480, 75)
                     },
                     enabled = glassesState is GlassesConnectionManager.ConnectionState.Connected
                 ) {
                     Icon(
-                        if (pendingPhotoBase64 != null) Icons.Default.Close else Icons.Default.CameraAlt,
-                        contentDescription = if (pendingPhotoBase64 != null) "Clear photo" else "Take photo",
-                        tint = if (pendingPhotoBase64 != null) Color.Red else MaterialTheme.colorScheme.onSurface
+                        Icons.Default.CameraAlt,
+                        contentDescription = "Take photo",
+                        tint = if (pendingPhotos.isNotEmpty()) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface
                     )
                 }
 
@@ -467,9 +457,9 @@ fun MainScreen() {
                 IconButton(
                     onClick = {
                         if (inputText.isNotBlank()) {
-                            openClawClient.sendMessage(inputText, pendingPhotoBase64)
+                            openClawClient.sendMessage(inputText, pendingPhotos.ifEmpty { null })
                             inputText = ""
-                            pendingPhotoBase64 = null
+                            pendingPhotos = emptyList()
                         }
                     }
                 ) {
@@ -1336,8 +1326,8 @@ private fun startVoiceRecognition(
     mainHandler: android.os.Handler,
     isRetry: Boolean,
     languageTag: String? = null,
-    pendingPhoto: () -> String? = { null },
-    onPhotoConsumed: () -> Unit = {}
+    pendingPhotos: () -> List<String> = { emptyList() },
+    onPhotosConsumed: () -> Unit = {}
 ) {
     voiceHandler.startListening(languageTag = languageTag) { result ->
         android.util.Log.i("MainScreen", ">>> Voice result received (retry=$isRetry): $result")
@@ -1348,8 +1338,8 @@ private fun startVoiceRecognition(
                     android.util.Log.i("MainScreen", "AI voice text: ${result.text.take(100)}")
                     RokidSdkManager.sendAsrContent(result.text)
                     RokidSdkManager.notifyAsrEnd()
-                    openClawClient.sendMessage(result.text, pendingPhoto())
-                    onPhotoConsumed()
+                    openClawClient.sendMessage(result.text, pendingPhotos().ifEmpty { null })
+                    onPhotosConsumed()
                     val resultMsg = org.json.JSONObject().apply {
                         put("type", "voice_result")
                         put("result_type", "text")
@@ -1381,7 +1371,7 @@ private fun startVoiceRecognition(
                     android.util.Log.w("MainScreen", "Voice error '${result.message}', retrying with phone mic...")
                     RokidSdkManager.clearCommunicationDevice()
                     mainHandler.postDelayed({
-                        startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = true, languageTag = languageTag, pendingPhoto = pendingPhoto, onPhotoConsumed = onPhotoConsumed)
+                        startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = true, languageTag = languageTag, pendingPhotos = pendingPhotos, onPhotosConsumed = onPhotosConsumed)
                     }, 200)
                 } else {
                     android.util.Log.e("MainScreen", "AI voice error (after retry): ${result.message}")

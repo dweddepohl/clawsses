@@ -165,7 +165,7 @@ class OpenClawClient(
     /**
      * Send a user message to OpenClaw and trigger an agent run.
      */
-    fun sendMessage(text: String, imageBase64: String? = null) {
+    fun sendMessage(text: String, images: List<String>? = null) {
         scope.launch {
             try {
                 // Add user message to local chat
@@ -184,17 +184,18 @@ class OpenClawClient(
                     addProperty("sessionKey", _currentSessionKey.value ?: "main")
                     addProperty("idempotencyKey", idempotencyKey)
                     addProperty("message", text)
-                    if (imageBase64 != null) {
-                        val mimeType = detectImageMimeType(imageBase64)
-                        val ext = if (mimeType == "image/webp") "webp" else "jpg"
-                        val attachment = JsonObject().apply {
-                            addProperty("type", "image")
-                            addProperty("mimeType", mimeType)
-                            addProperty("fileName", "glasses-photo.$ext")
-                            addProperty("content", imageBase64)
-                        }
+                    if (!images.isNullOrEmpty()) {
                         val attachments = JsonArray()
-                        attachments.add(attachment)
+                        images.forEachIndexed { i, base64 ->
+                            val mimeType = detectImageMimeType(base64)
+                            val ext = if (mimeType == "image/webp") "webp" else "jpg"
+                            attachments.add(JsonObject().apply {
+                                addProperty("type", "image")
+                                addProperty("mimeType", mimeType)
+                                addProperty("fileName", "glasses-photo-${i + 1}.$ext")
+                                addProperty("content", base64)
+                            })
+                        }
                         add("attachments", attachments)
                     }
                 }

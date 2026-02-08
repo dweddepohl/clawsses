@@ -125,7 +125,13 @@ class HudActivity : ComponentActivity() {
                     state = state,
                     onTap = { handleGesture(Gesture.TAP) },
                     onDoubleTap = { handleGesture(Gesture.DOUBLE_TAP) },
-                    onLongPress = { handleGesture(Gesture.LONG_PRESS) }
+                    onLongPress = { handleGesture(Gesture.LONG_PRESS) },
+                    onScrolledToEndChanged = { atEnd ->
+                        val current = hudState.value
+                        if (current.isScrolledToEnd != atEnd) {
+                            hudState.value = current.copy(isScrolledToEnd = atEnd)
+                        }
+                    }
                 )
             }
         }
@@ -316,12 +322,15 @@ class HudActivity : ComponentActivity() {
                 // Scroll down — push through bottom to MENU
                 val current = hudState.value
                 val maxScroll = maxOf(0, current.messages.size - 1)
-                if (current.scrollPosition >= maxScroll) {
-                    // At bottom: push through to MENU
+                if (current.scrollPosition >= maxScroll && current.isScrolledToEnd) {
+                    // Already fully scrolled to bottom: push through to MENU
                     hudState.value = current.copy(
                         focusedArea = ChatFocusArea.MENU,
                         menuBarIndex = 0
                     )
+                } else if (current.scrollPosition >= maxScroll) {
+                    // At last message but not fully scrolled — scroll to end
+                    scrollToBottom()
                 } else {
                     scrollDown()
                 }
@@ -386,14 +395,22 @@ class HudActivity : ComponentActivity() {
                     HudPosition.BOTTOM_HALF -> HudPosition.TOP_HALF
                     HudPosition.TOP_HALF -> HudPosition.FULL
                 }
-                hudState.value = current.copy(hudPosition = nextPosition)
+                // Bump scrollTrigger so the scroll re-evaluates with the new viewport height
+                hudState.value = current.copy(
+                    hudPosition = nextPosition,
+                    scrollTrigger = current.scrollTrigger + 1
+                )
             }
             MenuBarItem.FONT -> {
                 // Cycle display size
                 val sizes = HudDisplaySize.entries
                 val currentIndex = sizes.indexOf(current.displaySize)
                 val nextSize = sizes[(currentIndex + 1) % sizes.size]
-                hudState.value = current.copy(displaySize = nextSize)
+                // Bump scrollTrigger so the scroll re-evaluates with the new font size
+                hudState.value = current.copy(
+                    displaySize = nextSize,
+                    scrollTrigger = current.scrollTrigger + 1
+                )
             }
             MenuBarItem.MORE -> {
                 hudState.value = current.copy(

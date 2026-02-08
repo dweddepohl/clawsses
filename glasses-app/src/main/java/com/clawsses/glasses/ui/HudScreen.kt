@@ -135,6 +135,7 @@ data class ChatHudState(
     val messages: List<DisplayMessage> = emptyList(),
     val scrollPosition: Int = 0,
     val scrollTrigger: Int = 0,
+    val isScrolledToEnd: Boolean = false,
     val inputText: String = "",
     val hasPhoto: Boolean = false,
     val isConnected: Boolean = false,
@@ -189,13 +190,20 @@ fun HudScreen(
     state: ChatHudState,
     onTap: () -> Unit = {},
     onDoubleTap: () -> Unit = {},
-    onLongPress: () -> Unit = {}
+    onLongPress: () -> Unit = {},
+    onScrolledToEndChanged: (Boolean) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
 
     val monoFontFamily = remember { FontFamily(Font(R.font.jetbrains_mono)) }
+
+    // Track whether the list is scrolled to the very end (pixel-level)
+    val canScrollForward = listState.canScrollForward
+    LaunchedEffect(canScrollForward) {
+        onScrolledToEndChanged(!canScrollForward)
+    }
 
     // Auto-scroll when position or trigger changes
     LaunchedEffect(state.scrollPosition, state.scrollTrigger) {
@@ -216,6 +224,12 @@ fun HudScreen(
                 }
                 val scrollDistance = -(itemsToScroll * avgItemHeight)
                 listState.animateScrollBy(scrollDistance)
+            } else if (state.scrollPosition == totalItems - 1) {
+                // Scrolling to last item: use a large offset so the bottom of the
+                // item aligns with the viewport bottom (Compose clamps internally).
+                // This ensures the last message is fully visible even with large
+                // fonts or half-screen mode.
+                listState.animateScrollToItem(state.scrollPosition, Int.MAX_VALUE)
             } else {
                 listState.animateScrollToItem(state.scrollPosition)
             }

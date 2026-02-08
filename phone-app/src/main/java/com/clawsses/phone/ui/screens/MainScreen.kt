@@ -447,16 +447,29 @@ fun MainScreen() {
             onHostChange = {
                 openClawHost = it
                 prefs.edit().putString("openclaw_host", it).apply()
+                // Cancel any in-progress connection so user can reconnect with new settings
+                if (openClawState !is OpenClawClient.ConnectionState.Disconnected &&
+                    openClawState !is OpenClawClient.ConnectionState.Connected) {
+                    openClawClient.disconnect()
+                }
             },
             openClawPort = openClawPort,
             onPortChange = {
                 openClawPort = it
                 prefs.edit().putString("openclaw_port", it).apply()
+                if (openClawState !is OpenClawClient.ConnectionState.Disconnected &&
+                    openClawState !is OpenClawClient.ConnectionState.Connected) {
+                    openClawClient.disconnect()
+                }
             },
             openClawToken = openClawToken,
             onTokenChange = {
                 openClawToken = it
                 prefs.edit().putString("openclaw_token", it).apply()
+                if (openClawState !is OpenClawClient.ConnectionState.Disconnected &&
+                    openClawState !is OpenClawClient.ConnectionState.Connected) {
+                    openClawClient.disconnect()
+                }
             },
             debugModeEnabled = debugModeEnabled,
             onDebugModeChange = { enabled ->

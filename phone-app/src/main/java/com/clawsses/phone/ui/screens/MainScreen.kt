@@ -302,10 +302,9 @@ fun MainScreen() {
                     "take_photo" -> {
                         android.util.Log.d("MainScreen", "Glasses requested photo capture via CXR SDK")
                         RokidSdkManager.onPhotoResult = { status, photoBytes ->
-                            // Post to main thread to avoid calling back into CXR SDK from its callback thread
                             mainHandler.post {
                                 android.util.Log.d("MainScreen", "Photo callback: status=$status, bytes=${photoBytes?.size}")
-                                if (status == com.rokid.cxr.client.utils.ValueUtil.CxrStatus.RESPONSE_SUCCEED && photoBytes != null && photoBytes.isNotEmpty()) {
+                                if (photoBytes != null && photoBytes.isNotEmpty()) {
                                     val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
                                     pendingPhotoBase64 = base64
                                     android.util.Log.d("MainScreen", "Photo captured: ${photoBytes.size} bytes, base64 length=${base64.length}")
@@ -328,8 +327,7 @@ fun MainScreen() {
                                 RokidSdkManager.onPhotoResult = null
                             }
                         }
-                        // Use takeGlassPhotoGlobal (Med channel) — does one-shot capture
-                        // WITHOUT entering AI scene, so glasses HUD stays active
+                        // takeGlassPhotoGlobal: one-shot capture, no AI scene, HUD stays active
                         val takeStatus = RokidSdkManager.takeGlassPhotoGlobal(1280, 720, 80)
                         android.util.Log.d("MainScreen", "takeGlassPhotoGlobal: $takeStatus")
                     }

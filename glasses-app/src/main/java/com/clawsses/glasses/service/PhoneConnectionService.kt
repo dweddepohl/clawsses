@@ -175,15 +175,15 @@ class PhoneConnectionService(
             debugClient?.sendToPhone(message)
             Log.d(TAG, "Debug: sent to phone: ${message.take(50)}...")
         } else {
-            scope.launch {
-                try {
-                    val caps = Caps()
-                    caps.write(message)
-                    val result = cxrBridge?.sendMessage(MSG_TYPE_COMMAND, caps)
-                    Log.d(TAG, "Sent to phone: ${message.take(50)}..., result: $result")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error sending to phone", e)
-                }
+            // CXR bridge must be called from the same thread it was initialized on (main thread).
+            // Using an IO coroutine here causes sendMessage to silently fail.
+            try {
+                val caps = Caps()
+                caps.write(message)
+                val result = cxrBridge?.sendMessage(MSG_TYPE_COMMAND, caps)
+                Log.d(TAG, "Sent to phone: ${message.take(50)}..., result: $result")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending to phone", e)
             }
         }
     }

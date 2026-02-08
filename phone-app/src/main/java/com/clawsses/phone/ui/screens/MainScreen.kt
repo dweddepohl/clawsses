@@ -364,14 +364,16 @@ fun MainScreen() {
                             android.util.Log.d("MainScreen", "Cleared pending photo")
                         } else {
                             android.util.Log.d("MainScreen", "Taking photo from glasses camera")
+                            android.util.Log.d("MainScreen", "SDK initialized=${RokidSdkManager.isReady()}, connected=${RokidSdkManager.isConnected()}")
+                            android.widget.Toast.makeText(context, "Capturing photo...", android.widget.Toast.LENGTH_SHORT).show()
                             RokidSdkManager.onPhotoResult = { status, photoBytes ->
                                 mainHandler.post {
                                     android.util.Log.d("MainScreen", "Photo callback: status=$status, bytes=${photoBytes?.size}")
-                                    RokidSdkManager.sendExitEvent()
                                     if (photoBytes != null && photoBytes.isNotEmpty()) {
                                         val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
                                         pendingPhotoBase64 = base64
                                         android.util.Log.d("MainScreen", "Photo captured: ${photoBytes.size} bytes")
+                                        android.widget.Toast.makeText(context, "Photo captured! ${photoBytes.size} bytes", android.widget.Toast.LENGTH_SHORT).show()
                                         val thumbnail = createThumbnailBase64(photoBytes, 80, 60)
                                         val resultMsg = org.json.JSONObject().apply {
                                             put("type", "photo_result")
@@ -381,12 +383,16 @@ fun MainScreen() {
                                         glassesManager.sendRawMessage(resultMsg.toString())
                                     } else {
                                         android.util.Log.e("MainScreen", "Photo capture failed: status=$status")
+                                        android.widget.Toast.makeText(context, "Photo failed: $status", android.widget.Toast.LENGTH_LONG).show()
                                     }
                                     RokidSdkManager.onPhotoResult = null
                                 }
                             }
-                            RokidSdkManager.openGlassCamera(1280, 720, 80)
-                            RokidSdkManager.takeGlassPhoto(1280, 720, 80)
+                            // Use takeGlassPhotoGlobal — one-shot capture that does NOT require
+                            // entering AI scene mode (openGlassCamera+takeGlassPhoto need active AI scene)
+                            val status = RokidSdkManager.takeGlassPhotoGlobal(1280, 720, 80)
+                            android.util.Log.d("MainScreen", "takeGlassPhotoGlobal returned: $status")
+                            android.widget.Toast.makeText(context, "takeGlassPhotoGlobal=$status", android.widget.Toast.LENGTH_LONG).show()
                         }
                     },
                     enabled = glassesState is GlassesConnectionManager.ConnectionState.Connected

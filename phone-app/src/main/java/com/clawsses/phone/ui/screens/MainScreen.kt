@@ -1010,7 +1010,7 @@ fun SettingsDialog(
                             ) {
                                 Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Install via SDK")
+                                Text("Install app to glasses")
                             }
 
                             Spacer(Modifier.height(16.dp))

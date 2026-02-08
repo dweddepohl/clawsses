@@ -299,8 +299,38 @@ fun MainScreen() {
                         val currentMessages = openClawClient.chatMessages.value
                         glassesManager.sendRawMessage(buildChatHistoryJson(currentMessages))
                     }
-                    // Note: "take_photo" from glasses doesn't work via CXR bridge.
-                    // Photo capture is triggered from phone UI camera button instead.
+                    "take_photo" -> {
+                        android.util.Log.d("MainScreen", "Glasses requested photo capture")
+                        RokidSdkManager.onPhotoResult = { status, photoBytes ->
+                            mainHandler.post {
+                                android.util.Log.d("MainScreen", "Photo callback: status=$status, bytes=${photoBytes?.size}")
+                                if (photoBytes != null && photoBytes.isNotEmpty()) {
+                                    val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
+                                    pendingPhotoBase64 = base64
+                                    val thumbnail = createThumbnailBase64(photoBytes, 80, 60)
+                                    val resultMsg = org.json.JSONObject().apply {
+                                        put("type", "photo_result")
+                                        put("status", "captured")
+                                        put("thumbnail", thumbnail)
+                                    }
+                                    glassesManager.sendRawMessage(resultMsg.toString())
+                                } else {
+                                    android.util.Log.e("MainScreen", "Photo capture failed: status=$status")
+                                    val resultMsg = org.json.JSONObject().apply {
+                                        put("type", "photo_result")
+                                        put("status", "error")
+                                        put("message", "Capture failed: $status")
+                                    }
+                                    glassesManager.sendRawMessage(resultMsg.toString())
+                                }
+                                RokidSdkManager.onPhotoResult = null
+                            }
+                        }
+                        RokidSdkManager.takeGlassPhotoGlobal(640, 480, 75)
+                    }
+                    "remove_photo" -> {
+                        pendingPhotoBase64 = null
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("MainScreen", "Error parsing glasses message", e)
@@ -390,7 +420,7 @@ fun MainScreen() {
                             }
                             // Use takeGlassPhotoGlobal — one-shot capture that does NOT require
                             // entering AI scene mode (openGlassCamera+takeGlassPhoto need active AI scene)
-                            val status = RokidSdkManager.takeGlassPhotoGlobal(1280, 720, 80)
+                            val status = RokidSdkManager.takeGlassPhotoGlobal(640, 480, 75)
                             android.util.Log.d("MainScreen", "takeGlassPhotoGlobal returned: $status")
                             android.widget.Toast.makeText(context, "takeGlassPhotoGlobal=$status", android.widget.Toast.LENGTH_LONG).show()
                         }

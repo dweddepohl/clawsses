@@ -692,7 +692,7 @@ class HudActivity : ComponentActivity() {
                     // Complete message (user echo or finished assistant message)
                     val id = msg.optString("id", "")
                     val role = msg.optString("role", "assistant")
-                    val content = msg.optString("content", "")
+                    val content = unwrapContent(msg.optString("content", ""))
 
                     val current = hudState.value
                     val messages = current.messages.toMutableList()
@@ -733,7 +733,7 @@ class HudActivity : ComponentActivity() {
                             val msgObj = messagesArray.optJSONObject(i) ?: continue
                             val id = msgObj.optString("id", "")
                             val role = msgObj.optString("role", "assistant")
-                            val content = msgObj.optString("content", "")
+                            val content = unwrapContent(msgObj.optString("content", ""))
                             messages.add(DisplayMessage(
                                 id = id,
                                 role = role,
@@ -801,7 +801,7 @@ class HudActivity : ComponentActivity() {
                 }
 
                 "chat_stream_end" -> {
-                    // Streaming complete for a message
+                    // Streaming complete — unwrap soft line breaks now that full content is available
                     val id = msg.optString("id", "")
 
                     val current = hudState.value
@@ -809,7 +809,11 @@ class HudActivity : ComponentActivity() {
 
                     val existingIndex = messages.indexOfFirst { it.id == id }
                     if (existingIndex >= 0) {
-                        messages[existingIndex] = messages[existingIndex].copy(isStreaming = false)
+                        val existing = messages[existingIndex]
+                        messages[existingIndex] = existing.copy(
+                            content = unwrapContent(existing.content),
+                            isStreaming = false
+                        )
                     }
 
                     hudState.value = current.copy(
@@ -892,6 +896,51 @@ class HudActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e(GlassesApp.TAG, "Error parsing message: ${json.take(100)}", e)
         }
+    }
+
+    /**
+     * Unwrap soft line breaks from AI model output so Compose can re-wrap
+     * to the actual widget width. Preserves paragraph breaks (blank lines),
+     * list items, and other structural markdown.
+     *
+     * A single `\n` between two non-empty, non-structural lines is treated
+     * as a soft wrap inserted by the model and replaced with a space.
+     */
+    private fun unwrapContent(text: String): String {
+        val lines = text.split("\n")
+        if (lines.size <= 1) return text
+
+        val result = StringBuilder()
+        for (i in lines.indices) {
+            val line = lines[i]
+            result.append(line)
+            if (i < lines.lastIndex) {
+                val next = lines[i + 1]
+                // Keep newline (don't join) when:
+                // - current line is blank → paragraph break
+                // - next line is blank → paragraph break
+                // - next line starts with markdown structure (list, heading, code fence, blockquote)
+                val keepNewline = line.isBlank() ||
+                    next.isBlank() ||
+                    next.trimStart().let {
+                        it.startsWith("- ") ||
+                        it.startsWith("* ") ||
+                        it.startsWith("+ ") ||
+                        it.matches(Regex("^\\d+[.)].+")) ||
+                        it.startsWith("#") ||
+                        it.startsWith("```") ||
+                        it.startsWith("> ")
+                    }
+
+                if (keepNewline) {
+                    result.append("\n")
+                } else {
+                    // Join with space (soft wrap from model)
+                    if (line.isNotEmpty()) result.append(" ")
+                }
+            }
+        }
+        return result.toString()
     }
 
     override fun onDestroy() {

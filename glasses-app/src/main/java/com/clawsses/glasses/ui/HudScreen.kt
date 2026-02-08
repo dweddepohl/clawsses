@@ -94,10 +94,6 @@ enum class MenuBarItem(val icon: String, val label: String) {
  */
 enum class MoreMenuItem(val icon: String, val label: String) {
     SLASH("/", "Slash Cmds"),
-    COMMA(",", "Comma"),
-    DOT(".", "Dot"),
-    EXCL("!", "Exclaim"),
-    QUESTION("?", "Question"),
     PHOTO("\uD83D\uDCF7", "Photo"),
     REMOVE_PHOTO("\u2716", "Rm Photo")
 }

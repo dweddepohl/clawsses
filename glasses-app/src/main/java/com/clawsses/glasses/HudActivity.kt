@@ -509,10 +509,6 @@ class HudActivity : ComponentActivity() {
                     selectedSlashIndex = 0
                 )
             }
-            MoreMenuItem.COMMA -> appendToInput(",")
-            MoreMenuItem.DOT -> appendToInput(".")
-            MoreMenuItem.EXCL -> appendToInput("!")
-            MoreMenuItem.QUESTION -> appendToInput("?")
             MoreMenuItem.PHOTO -> {
                 // TODO: trigger glasses camera capture
                 hudState.value = current.copy(hasPhoto = true)

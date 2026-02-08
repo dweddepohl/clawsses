@@ -31,7 +31,6 @@ class SettingsDialogTokenTest {
                     androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
                 ),
                 onCancelInstall = {},
-                onOpenGlassesApp = {},
             )
         }
     }

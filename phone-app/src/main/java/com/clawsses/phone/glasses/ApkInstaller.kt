@@ -29,8 +29,6 @@ class ApkInstaller(private val context: Context) {
     companion object {
         private const val TAG = "ApkInstaller"
         private const val GLASSES_APP_ASSET = "glasses-app-release.apk"
-        private const val GLASSES_APP_PACKAGE = "com.clawsses.glasses"
-        private const val GLASSES_APP_ACTIVITY = "com.clawsses.glasses.HudActivity"
         private const val DEFAULT_ADB_PORT = 5555
         private const val OPERATION_TIMEOUT_MS = 60_000L
     }
@@ -384,48 +382,6 @@ class ApkInstaller(private val context: Context) {
                 Log.e(TAG, "ADB connection test failed", e)
                 onResult(false, formatError(e))
             }
-        }
-    }
-
-    /**
-     * Launch the glasses app via ADB.
-     */
-    fun launchViaAdb(host: String? = null, port: Int? = null) {
-        val targetHost = host ?: adbHost
-        val targetPort = port ?: adbPort
-
-        if (targetHost.isEmpty()) {
-            Log.e(TAG, "ADB host not configured")
-            return
-        }
-
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    Dadb.create(targetHost, targetPort).use { adb ->
-                        val cmd = "am start -n $GLASSES_APP_PACKAGE/$GLASSES_APP_ACTIVITY"
-                        val result = adb.shell(cmd)
-                        if (result.exitCode == 0) {
-                            Log.d(TAG, "App launched successfully")
-                        } else {
-                            Log.e(TAG, "Failed to launch app: ${result.output}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to launch app via ADB", e)
-            }
-        }
-    }
-
-    /**
-     * Open the glasses app (tries SDK, then ADB).
-     */
-    fun openGlassesApp() {
-        if (adbHost.isNotEmpty()) {
-            launchViaAdb()
-        } else {
-            Log.w(TAG, "Cannot open app: ADB not configured and SDK not connected")
         }
     }
 

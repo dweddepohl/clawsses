@@ -486,7 +486,6 @@ fun MainScreen() {
             installState = installState,
             apkInstaller = apkInstaller,
             onCancelInstall = { apkInstaller.cancelInstallation() },
-            onOpenGlassesApp = { apkInstaller.openGlassesApp() },
             glassesManager = glassesManager,
             glassesState = glassesState,
             voiceLanguageManager = voiceLanguageManager,
@@ -746,7 +745,6 @@ fun SettingsDialog(
     installState: ApkInstaller.InstallState,
     apkInstaller: ApkInstaller,
     onCancelInstall: () -> Unit,
-    onOpenGlassesApp: () -> Unit,
     glassesManager: GlassesConnectionManager? = null,
     glassesState: GlassesConnectionManager.ConnectionState? = null,
     voiceLanguageManager: VoiceLanguageManager? = null,
@@ -1018,7 +1016,6 @@ fun SettingsDialog(
                             InstallationSection(
                                 installState = installState,
                                 onCancel = onCancelInstall,
-                                onOpenApp = onOpenGlassesApp,
                                 onRetry = { apkInstaller.installViaSdk() }
                             )
                         }
@@ -1167,7 +1164,6 @@ fun SettingsDialog(
 private fun InstallationSection(
     installState: ApkInstaller.InstallState,
     onCancel: () -> Unit,
-    onOpenApp: () -> Unit,
     onRetry: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -1195,12 +1191,6 @@ private fun InstallationSection(
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(24.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(installState.message, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF4CAF50))
-                }
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onOpenApp, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Open App on Glasses")
                 }
             }
             is ApkInstaller.InstallState.Error -> {

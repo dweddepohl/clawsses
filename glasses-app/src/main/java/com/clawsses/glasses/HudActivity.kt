@@ -688,7 +688,7 @@ class HudActivity : ComponentActivity() {
                     val displayMsg = DisplayMessage(
                         id = id,
                         role = role,
-                        lines = wrapText(content),
+                        content = content,
                         isStreaming = false
                     )
 
@@ -759,10 +759,9 @@ class HudActivity : ComponentActivity() {
                     if (existingIndex >= 0) {
                         // Append chunk to existing streaming message
                         val existing = messages[existingIndex]
-                        val currentContent = existing.lines.joinToString("\n")
-                        val newContent = currentContent + chunk
+                        val newContent = existing.content + chunk
                         messages[existingIndex] = existing.copy(
-                            lines = wrapText(newContent),
+                            content = newContent,
                             isStreaming = true
                         )
                     } else {
@@ -770,7 +769,7 @@ class HudActivity : ComponentActivity() {
                         messages.add(DisplayMessage(
                             id = id,
                             role = "assistant",
-                            lines = wrapText(chunk),
+                            content = chunk,
                             isStreaming = true
                         ))
                     }
@@ -876,40 +875,6 @@ class HudActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e(GlassesApp.TAG, "Error parsing message: ${json.take(100)}", e)
         }
-    }
-
-    // ============== Text Wrapping ==============
-
-    /**
-     * Wrap text content into lines for display.
-     * Splits on newlines and wraps long lines at ~50 chars.
-     */
-    private fun wrapText(text: String, maxWidth: Int = 50): List<String> {
-        if (text.isEmpty()) return listOf("")
-
-        val result = mutableListOf<String>()
-        for (paragraph in text.split("\n")) {
-            if (paragraph.length <= maxWidth) {
-                result.add(paragraph)
-            } else {
-                // Word-wrap
-                var remaining = paragraph
-                while (remaining.length > maxWidth) {
-                    val breakAt = remaining.lastIndexOf(' ', maxWidth)
-                    if (breakAt > 0) {
-                        result.add(remaining.substring(0, breakAt))
-                        remaining = remaining.substring(breakAt + 1)
-                    } else {
-                        result.add(remaining.substring(0, maxWidth))
-                        remaining = remaining.substring(maxWidth)
-                    }
-                }
-                if (remaining.isNotEmpty()) {
-                    result.add(remaining)
-                }
-            }
-        }
-        return result
     }
 
     override fun onDestroy() {

@@ -101,12 +101,13 @@ enum class MoreMenuItem(val icon: String, val label: String) {
 }
 
 /**
- * A display-ready chat message for the HUD
+ * A display-ready chat message for the HUD.
+ * Stores raw content; wrapping is computed at render time.
  */
 data class DisplayMessage(
     val id: String,
     val role: String,  // "user" or "assistant"
-    val lines: List<String>,
+    val content: String,
     val isStreaming: Boolean = false
 )
 
@@ -158,8 +159,8 @@ data class ChatHudState(
     val showSlashMenu: Boolean = false,
     val selectedSlashIndex: Int = 0
 ) {
-    /** Total number of text lines across all messages */
-    val totalLines: Int get() = messages.sumOf { it.lines.size }
+    /** Total number of messages */
+    val totalMessages: Int get() = messages.size
 }
 
 // Common slash commands
@@ -533,38 +534,25 @@ private fun ChatMessageItem(
                 }
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-            Column {
-                message.lines.forEachIndexed { index, line ->
-                    val isLastLine = index == message.lines.lastIndex
-                    val displayText = if (isLastLine && isStreaming && cursorVisible) {
-                        "$line\u2588" // Block cursor
-                    } else {
-                        line
-                    }
-
-                    Text(
-                        text = displayText,
-                        color = if (isUser) HudColors.primaryText else HudColors.green,
-                        fontSize = fontSize,
-                        fontFamily = fontFamily,
-                        lineHeight = fontSize,
-                        letterSpacing = 0.sp,
-                        textAlign = if (isUser) TextAlign.End else TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                // Handle empty streaming message (first chunk not arrived yet)
-                if (message.lines.isEmpty() && isStreaming) {
-                    Text(
-                        text = if (cursorVisible) "\u2588" else " ",
-                        color = HudColors.green,
-                        fontSize = fontSize,
-                        fontFamily = fontFamily,
-                        lineHeight = fontSize,
-                        letterSpacing = 0.sp
-                    )
-                }
+            val displayText = if (message.content.isEmpty() && isStreaming) {
+                if (cursorVisible) "\u2588" else " "
+            } else if (isStreaming && cursorVisible) {
+                "${message.content}\u2588"
+            } else {
+                message.content
             }
+
+            Text(
+                text = displayText,
+                color = if (isUser) HudColors.primaryText else HudColors.green,
+                fontSize = fontSize,
+                fontFamily = fontFamily,
+                lineHeight = fontSize,
+                letterSpacing = 0.sp,
+                textAlign = if (isUser) TextAlign.End else TextAlign.Start,
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

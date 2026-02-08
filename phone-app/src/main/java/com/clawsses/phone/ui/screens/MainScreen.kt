@@ -60,6 +60,7 @@ import com.clawsses.phone.openclaw.OpenClawClient
 import com.clawsses.phone.voice.VoiceCommandHandler
 import com.clawsses.phone.voice.VoiceLanguageManager
 import com.clawsses.shared.ChatMessage
+import com.clawsses.shared.ConnectionUpdate
 import com.clawsses.shared.SessionInfo
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -280,6 +281,19 @@ fun MainScreen() {
                         if (command.isNotEmpty()) {
                             openClawClient.sendSlashCommand(command)
                         }
+                    }
+                    "request_state" -> {
+                        android.util.Log.d("MainScreen", "Glasses requested current state")
+                        // Send OpenClaw connection status
+                        val isConnected = openClawState is OpenClawClient.ConnectionState.Connected
+                        val connUpdate = ConnectionUpdate(
+                            connected = isConnected,
+                            sessionId = openClawClient.currentSessionKey.value
+                        )
+                        glassesManager.sendRawMessage(connUpdate.toJson())
+                        // Send current chat history
+                        val currentMessages = openClawClient.chatMessages.value
+                        glassesManager.sendRawMessage(buildChatHistoryJson(currentMessages))
                     }
                 }
             } catch (e: Exception) {

@@ -140,13 +140,16 @@ class HudActivity : ComponentActivity() {
             phoneConnection.startListening()
         }
 
-        // Observe connection state
+        // Observe connection state and request current state when phone connects
         lifecycleScope.launch {
             phoneConnection.connectionState.collect { state ->
                 val isConnected = state is PhoneConnectionService.ConnectionState.Connected
                 val current = hudState.value
                 if (current.isConnected != isConnected) {
                     hudState.value = current.copy(isConnected = isConnected)
+                    if (isConnected) {
+                        phoneConnection.sendToPhone("""{"type":"request_state"}""")
+                    }
                 }
             }
         }

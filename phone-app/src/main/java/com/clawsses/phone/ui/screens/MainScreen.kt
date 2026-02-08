@@ -304,6 +304,8 @@ fun MainScreen() {
                         RokidSdkManager.onPhotoResult = { status, photoBytes ->
                             // Post to main thread to avoid calling back into CXR SDK from its callback thread
                             mainHandler.post {
+                                // Exit AI camera scene first to restore message bridge
+                                RokidSdkManager.sendExitEvent()
                                 if (status == com.rokid.cxr.client.utils.ValueUtil.CxrStatus.RESPONSE_SUCCEED && photoBytes != null && photoBytes.isNotEmpty()) {
                                     val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
                                     pendingPhotoBase64 = base64
@@ -327,10 +329,12 @@ fun MainScreen() {
                                 RokidSdkManager.onPhotoResult = null
                             }
                         }
-                        // Use takeGlassPhotoGlobal for one-shot capture on the Med channel —
-                        // no AI scene needed, doesn't disrupt the CXR message bridge
-                        val takeStatus = RokidSdkManager.takeGlassPhotoGlobal(1280, 720, 80)
-                        android.util.Log.d("MainScreen", "takeGlassPhotoGlobal: $takeStatus")
+                        // SDK docs method 2: open camera in AI scene, then take photo
+                        // Photo bytes arrive via PhotoResultCallback over Bluetooth
+                        val openStatus = RokidSdkManager.openGlassCamera(1280, 720, 80)
+                        android.util.Log.d("MainScreen", "openGlassCamera: $openStatus")
+                        val takeStatus = RokidSdkManager.takeGlassPhoto(1280, 720, 80)
+                        android.util.Log.d("MainScreen", "takeGlassPhoto: $takeStatus")
                     }
                     "remove_photo" -> {
                         android.util.Log.d("MainScreen", "Glasses cleared photo")

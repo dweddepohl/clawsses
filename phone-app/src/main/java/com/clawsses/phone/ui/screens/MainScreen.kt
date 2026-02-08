@@ -299,42 +299,8 @@ fun MainScreen() {
                         val currentMessages = openClawClient.chatMessages.value
                         glassesManager.sendRawMessage(buildChatHistoryJson(currentMessages))
                     }
-                    "take_photo" -> {
-                        android.util.Log.d("MainScreen", "Glasses requested photo capture via CXR SDK")
-                        RokidSdkManager.onPhotoResult = { status, photoBytes ->
-                            mainHandler.post {
-                                android.util.Log.d("MainScreen", "Photo callback: status=$status, bytes=${photoBytes?.size}")
-                                if (photoBytes != null && photoBytes.isNotEmpty()) {
-                                    val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
-                                    pendingPhotoBase64 = base64
-                                    android.util.Log.d("MainScreen", "Photo captured: ${photoBytes.size} bytes, base64 length=${base64.length}")
-                                    val thumbnail = createThumbnailBase64(photoBytes, 80, 60)
-                                    val resultMsg = org.json.JSONObject().apply {
-                                        put("type", "photo_result")
-                                        put("status", "captured")
-                                        put("thumbnail", thumbnail)
-                                    }
-                                    glassesManager.sendRawMessage(resultMsg.toString())
-                                } else {
-                                    android.util.Log.e("MainScreen", "Photo capture failed: status=$status, bytes=${photoBytes?.size}")
-                                    val resultMsg = org.json.JSONObject().apply {
-                                        put("type", "photo_result")
-                                        put("status", "error")
-                                        put("message", "Capture failed: $status")
-                                    }
-                                    glassesManager.sendRawMessage(resultMsg.toString())
-                                }
-                                RokidSdkManager.onPhotoResult = null
-                            }
-                        }
-                        // takeGlassPhotoGlobal: one-shot capture, no AI scene, HUD stays active
-                        val takeStatus = RokidSdkManager.takeGlassPhotoGlobal(1280, 720, 80)
-                        android.util.Log.d("MainScreen", "takeGlassPhotoGlobal: $takeStatus")
-                    }
-                    "remove_photo" -> {
-                        android.util.Log.d("MainScreen", "Glasses cleared photo")
-                        pendingPhotoBase64 = null
-                    }
+                    // Note: "take_photo" from glasses doesn't work via CXR bridge.
+                    // Photo capture is triggered from phone UI camera button instead.
                 }
             } catch (e: Exception) {
                 android.util.Log.e("MainScreen", "Error parsing glasses message", e)
@@ -384,6 +350,54 @@ fun MainScreen() {
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace)
                 )
 
+                // Camera button — captures photo from glasses camera
+                IconButton(
+                    onClick = {
+                        if (pendingPhotoBase64 != null) {
+                            // Clear pending photo
+                            pendingPhotoBase64 = null
+                            val resultMsg = org.json.JSONObject().apply {
+                                put("type", "photo_result")
+                                put("status", "cleared")
+                            }
+                            glassesManager.sendRawMessage(resultMsg.toString())
+                            android.util.Log.d("MainScreen", "Cleared pending photo")
+                        } else {
+                            android.util.Log.d("MainScreen", "Taking photo from glasses camera")
+                            RokidSdkManager.onPhotoResult = { status, photoBytes ->
+                                mainHandler.post {
+                                    android.util.Log.d("MainScreen", "Photo callback: status=$status, bytes=${photoBytes?.size}")
+                                    RokidSdkManager.sendExitEvent()
+                                    if (photoBytes != null && photoBytes.isNotEmpty()) {
+                                        val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
+                                        pendingPhotoBase64 = base64
+                                        android.util.Log.d("MainScreen", "Photo captured: ${photoBytes.size} bytes")
+                                        val thumbnail = createThumbnailBase64(photoBytes, 80, 60)
+                                        val resultMsg = org.json.JSONObject().apply {
+                                            put("type", "photo_result")
+                                            put("status", "captured")
+                                            put("thumbnail", thumbnail)
+                                        }
+                                        glassesManager.sendRawMessage(resultMsg.toString())
+                                    } else {
+                                        android.util.Log.e("MainScreen", "Photo capture failed: status=$status")
+                                    }
+                                    RokidSdkManager.onPhotoResult = null
+                                }
+                            }
+                            RokidSdkManager.openGlassCamera(1280, 720, 80)
+                            RokidSdkManager.takeGlassPhoto(1280, 720, 80)
+                        }
+                    },
+                    enabled = glassesState is GlassesConnectionManager.ConnectionState.Connected
+                ) {
+                    Icon(
+                        if (pendingPhotoBase64 != null) Icons.Default.Close else Icons.Default.CameraAlt,
+                        contentDescription = if (pendingPhotoBase64 != null) "Clear photo" else "Take photo",
+                        tint = if (pendingPhotoBase64 != null) Color.Red else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
                 // Voice button
                 IconButton(
                     onClick = {
@@ -417,8 +431,9 @@ fun MainScreen() {
                 IconButton(
                     onClick = {
                         if (inputText.isNotBlank()) {
-                            openClawClient.sendMessage(inputText)
+                            openClawClient.sendMessage(inputText, pendingPhotoBase64)
                             inputText = ""
+                            pendingPhotoBase64 = null
                         }
                     }
                 ) {

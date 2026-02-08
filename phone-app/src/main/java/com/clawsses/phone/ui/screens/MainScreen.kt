@@ -327,8 +327,8 @@ fun MainScreen() {
                                 RokidSdkManager.onPhotoResult = null
                             }
                         }
-                        // Use takeGlassPhotoGlobal for one-shot capture — avoids openGlassCamera
-                        // which puts glasses in camera mode and blocks the CXR message bridge
+                        // Use takeGlassPhotoGlobal for one-shot capture on the Med channel —
+                        // no AI scene needed, doesn't disrupt the CXR message bridge
                         val takeStatus = RokidSdkManager.takeGlassPhotoGlobal(1280, 720, 80)
                         android.util.Log.d("MainScreen", "takeGlassPhotoGlobal: $takeStatus")
                     }

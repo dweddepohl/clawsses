@@ -803,6 +803,15 @@ private fun SessionPickerOverlay(
     fontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
+    val listState = rememberLazyListState()
+
+    // Keep selected item visible
+    LaunchedEffect(selectedIndex) {
+        if (sessions.isNotEmpty()) {
+            listState.animateScrollToItem(selectedIndex)
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -831,47 +840,53 @@ private fun SessionPickerOverlay(
                     fontFamily = fontFamily
                 )
             } else {
-                sessions.forEachIndexed { index, session ->
-                    val isSelected = index == selectedIndex
-                    val isCurrent = session.key == currentSessionKey
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    itemsIndexed(sessions) { index, session ->
+                        val isSelected = index == selectedIndex
+                        val isCurrent = session.key == currentSessionKey
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (isSelected) HudColors.green.copy(alpha = 0.3f)
-                                else Color.Transparent
-                            )
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isSelected) HudColors.green.copy(alpha = 0.3f)
+                                    else Color.Transparent
+                                )
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = if (isSelected) "\u25B6" else " ",
-                                color = HudColors.green,
-                                fontSize = 14.sp,
-                                fontFamily = fontFamily
-                            )
-                            Text(
-                                text = session.name,
-                                color = if (isSelected) HudColors.green else HudColors.primaryText,
-                                fontSize = 14.sp,
-                                fontFamily = fontFamily,
-                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                maxLines = 1
-                            )
-                        }
-                        if (isCurrent) {
-                            Text(
-                                text = "\u25CF",
-                                color = HudColors.cyan,
-                                fontSize = 12.sp
-                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = if (isSelected) "\u25B6" else " ",
+                                    color = HudColors.green,
+                                    fontSize = 14.sp,
+                                    fontFamily = fontFamily
+                                )
+                                Text(
+                                    text = session.name,
+                                    color = if (isSelected) HudColors.green else HudColors.primaryText,
+                                    fontSize = 14.sp,
+                                    fontFamily = fontFamily,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1
+                                )
+                            }
+                            if (isCurrent) {
+                                Text(
+                                    text = "\u25CF",
+                                    color = HudColors.cyan,
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
                 }

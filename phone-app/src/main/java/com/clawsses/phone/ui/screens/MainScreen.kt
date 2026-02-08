@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clawsses.phone.glasses.ApkInstaller
@@ -603,6 +605,7 @@ fun SettingsDialog(
     voiceLanguageManager: VoiceLanguageManager? = null,
 ) {
     var showDeviceList by remember { mutableStateOf(false) }
+    var tokenVisible by remember { mutableStateOf(false) }
     val discoveredDevices = glassesManager?.discoveredDevices?.collectAsState()?.value ?: emptyList()
     val wifiP2PConnected = glassesManager?.wifiP2PConnected?.collectAsState()?.value ?: false
     val sdkConnected = glassesState is GlassesConnectionManager.ConnectionState.Connected && !debugModeEnabled
@@ -654,7 +657,16 @@ fun SettingsDialog(
                         onValueChange = onTokenChange,
                         label = { Text("Gateway Token") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                                Icon(
+                                    imageVector = if (tokenVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = if (tokenVisible) "Hide token" else "Show token"
+                                )
+                            }
+                        }
                     )
 
                     Spacer(Modifier.height(16.dp))

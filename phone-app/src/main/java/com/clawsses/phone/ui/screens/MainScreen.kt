@@ -33,6 +33,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -613,6 +615,9 @@ fun SettingsDialog(
     val selectedLanguage = voiceLanguageManager?.selectedLanguage?.collectAsState()?.value ?: ""
     var showLanguagePicker by remember { mutableStateOf(false) }
 
+    val tabTitles = listOf("Glasses Connection", "OpenClaw Server", "Customize")
+    var selectedTab by remember { mutableIntStateOf(0) }
+
     AlertDialog(
         onDismissRequest = {
             if (installState is ApkInstaller.InstallState.Idle ||
@@ -622,363 +627,377 @@ fun SettingsDialog(
                 onDismiss()
             }
         },
-        title = { Text("Settings") },
-        text = {
-            LazyColumn {
-                item {
-                    // OpenClaw connection settings
-                    Text("OpenClaw Server", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = openClawHost,
-                            onValueChange = onHostChange,
-                            label = { Text("Host / IP") },
-                            modifier = Modifier.weight(2f),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = openClawPort,
-                            onValueChange = onPortChange,
-                            label = { Text("Port") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
+        title = {
+            Column {
+                Text("Settings")
+                Spacer(Modifier.height(8.dp))
+                TabRow(selectedTabIndex = selectedTab) {
+                    tabTitles.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = { Text(title, fontSize = 12.sp) }
                         )
                     }
-
-                    Spacer(Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = openClawToken,
-                        onValueChange = onTokenChange,
-                        label = { Text("Gateway Token") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                                Icon(
-                                    imageVector = if (tokenVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                    contentDescription = if (tokenVisible) "Hide token" else "Show token"
+                }
+            }
+        },
+        text = {
+            when (selectedTab) {
+                // ============== Tab 0: Glasses Connection ==============
+                0 -> LazyColumn {
+                    item {
+                        // Debug mode toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Debug Mode", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Use WebSocket instead of Bluetooth for glasses",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
                                 )
                             }
-                        }
-                    )
-
-                    Spacer(Modifier.height(16.dp))
-
-                    // Debug mode toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Debug Mode", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Use WebSocket instead of Bluetooth for glasses",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
+                            Switch(
+                                checked = debugModeEnabled,
+                                onCheckedChange = onDebugModeChange
                             )
                         }
-                        Switch(
-                            checked = debugModeEnabled,
-                            onCheckedChange = onDebugModeChange
-                        )
-                    }
 
-                    if (debugModeEnabled) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Glasses app connects to port 8081.\n" +
-                            "Run: adb forward tcp:8081 tcp:8081",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Spacer(Modifier.height(24.dp))
-
-                    // ============== Voice Language Section ==============
-                    Text("Voice Language", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(8.dp))
-
-                    val currentLangDisplay = availableLanguages
-                        .firstOrNull { it.tag == selectedLanguage }
-                        ?.displayName ?: selectedLanguage.ifEmpty { "Default" }
-
-                    OutlinedButton(
-                        onClick = { showLanguagePicker = !showLanguagePicker },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(currentLangDisplay, modifier = Modifier.weight(1f))
-                        Icon(
-                            if (showLanguagePicker) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    if (showLanguagePicker) {
-                        Spacer(Modifier.height(4.dp))
-                        if (availableLanguages.isEmpty()) {
+                        if (debugModeEnabled) {
+                            Spacer(Modifier.height(8.dp))
                             Text(
-                                "No languages available",
+                                "Glasses app connects to port 8081.\n" +
+                                "Run: adb forward tcp:8081 tcp:8081",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
+                                color = MaterialTheme.colorScheme.primary
                             )
-                        } else {
-                            Column {
-                                availableLanguages.forEach { lang ->
-                                    val isSelected = lang.tag == selectedLanguage
-                                    TextButton(
-                                        onClick = {
-                                            voiceLanguageManager?.selectLanguage(lang.tag)
-                                            showLanguagePicker = false
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
+                        }
+
+                        if (!debugModeEnabled) {
+                            Spacer(Modifier.height(16.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    when (glassesState) {
+                                        is GlassesConnectionManager.ConnectionState.Connected -> Icons.Default.CheckCircle
+                                        is GlassesConnectionManager.ConnectionState.Connecting,
+                                        is GlassesConnectionManager.ConnectionState.Scanning,
+                                        is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> Icons.Default.Sync
+                                        is GlassesConnectionManager.ConnectionState.Error -> Icons.Default.Error
+                                        else -> Icons.Default.BluetoothDisabled
+                                    },
+                                    contentDescription = null,
+                                    tint = when (glassesState) {
+                                        is GlassesConnectionManager.ConnectionState.Connected -> Color(0xFF4CAF50)
+                                        is GlassesConnectionManager.ConnectionState.Connecting,
+                                        is GlassesConnectionManager.ConnectionState.Scanning,
+                                        is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> Color(0xFFFFC107)
+                                        is GlassesConnectionManager.ConnectionState.Error -> Color(0xFFF44336)
+                                        else -> Color.Gray
+                                    },
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    when (glassesState) {
+                                        is GlassesConnectionManager.ConnectionState.Connected ->
+                                            "Connected: ${glassesState.deviceName}"
+                                        is GlassesConnectionManager.ConnectionState.Connecting -> "Connecting..."
+                                        is GlassesConnectionManager.ConnectionState.Scanning -> "Scanning for glasses..."
+                                        is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> "Setting up WiFi P2P..."
+                                        is GlassesConnectionManager.ConnectionState.Error -> "Error: ${glassesState.message}"
+                                        else -> "Not connected"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+
+                            if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
+                                Spacer(Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        if (wifiP2PConnected) Icons.Default.WifiTethering else Icons.Default.WifiTetheringOff,
+                                        contentDescription = null,
+                                        tint = if (wifiP2PConnected) Color(0xFF4CAF50) else Color.Gray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        if (wifiP2PConnected) "WiFi P2P: Connected" else "WiFi P2P: Not connected",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (wifiP2PConnected) Color(0xFF4CAF50) else Color.Gray
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val isScanning = glassesState is GlassesConnectionManager.ConnectionState.Scanning
+
+                                OutlinedButton(
+                                    onClick = {
+                                        if (isScanning) glassesManager?.stopScanning()
+                                        else {
+                                            glassesManager?.startScanning()
+                                            showDeviceList = true
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        if (isScanning) Icons.Default.Stop else Icons.Default.BluetoothSearching,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if (isScanning) "Stop" else "Scan")
+                                }
+
+                                if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
+                                    if (!wifiP2PConnected) {
+                                        Button(
+                                            onClick = { glassesManager?.initWifiP2P() },
+                                            modifier = Modifier.weight(1f)
                                         ) {
-                                            Icon(
-                                                if (isSelected) Icons.Default.RadioButtonChecked
-                                                else Icons.Default.RadioButtonUnchecked,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp),
-                                                tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
+                                            Icon(Icons.Default.WifiTethering, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("WiFi P2P")
+                                        }
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { glassesManager?.disconnect() },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Disconnect")
+                                    }
+                                }
+                            }
+
+                            // Clear cached glasses SN
+                            if (RokidSdkManager.hasCachedSn()) {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { RokidSdkManager.clearCachedSn() },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Clear saved glasses SN")
+                                }
+                                Text(
+                                    "Use if switching to different glasses",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+
+                            if (showDeviceList && discoveredDevices.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Found ${discoveredDevices.size} device(s):",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                                Spacer(Modifier.height(4.dp))
+
+                                discoveredDevices.forEach { device ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(device.name, style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                "${device.address} (RSSI: ${device.rssi})",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.Gray
                                             )
-                                            Spacer(Modifier.width(8.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    lang.displayName,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                                                            else MaterialTheme.colorScheme.onSurface
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                glassesManager?.connectToDevice(device)
+                                                showDeviceList = false
+                                            }
+                                        ) {
+                                            Text("Connect")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Installation Section
+                        if (sdkConnected) {
+                            Spacer(Modifier.height(16.dp))
+
+                            Text("Glasses App Installation", style = MaterialTheme.typography.titleSmall)
+                            Spacer(Modifier.height(8.dp))
+
+                            Text(
+                                "Install via Bluetooth + WiFi P2P",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                            Spacer(Modifier.height(8.dp))
+
+                            Button(
+                                onClick = { apkInstaller.installViaSdk() },
+                                enabled = installState is ApkInstaller.InstallState.Idle ||
+                                         installState is ApkInstaller.InstallState.Error ||
+                                         installState is ApkInstaller.InstallState.Success,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Install via SDK")
+                            }
+
+                            Spacer(Modifier.height(16.dp))
+
+                            InstallationSection(
+                                installState = installState,
+                                onCancel = onCancelInstall,
+                                onOpenApp = onOpenGlassesApp,
+                                onRetry = { apkInstaller.installViaSdk() }
+                            )
+                        }
+                    }
+                }
+
+                // ============== Tab 1: OpenClaw Server ==============
+                1 -> LazyColumn {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = openClawHost,
+                                onValueChange = onHostChange,
+                                label = { Text("Host / IP") },
+                                modifier = Modifier.weight(2f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = openClawPort,
+                                onValueChange = onPortChange,
+                                label = { Text("Port") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = openClawToken,
+                            onValueChange = onTokenChange,
+                            label = { Text("Gateway Token") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                                    Icon(
+                                        imageVector = if (tokenVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = if (tokenVisible) "Hide token" else "Show token"
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+
+                // ============== Tab 2: Customize ==============
+                2 -> LazyColumn {
+                    item {
+                        Text("Voice Language", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(8.dp))
+
+                        val currentLangDisplay = availableLanguages
+                            .firstOrNull { it.tag == selectedLanguage }
+                            ?.displayName ?: selectedLanguage.ifEmpty { "Default" }
+
+                        OutlinedButton(
+                            onClick = { showLanguagePicker = !showLanguagePicker },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(currentLangDisplay, modifier = Modifier.weight(1f))
+                            Icon(
+                                if (showLanguagePicker) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        if (showLanguagePicker) {
+                            Spacer(Modifier.height(4.dp))
+                            if (availableLanguages.isEmpty()) {
+                                Text(
+                                    "No languages available",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            } else {
+                                Column {
+                                    availableLanguages.forEach { lang ->
+                                        val isSelected = lang.tag == selectedLanguage
+                                        TextButton(
+                                            onClick = {
+                                                voiceLanguageManager?.selectLanguage(lang.tag)
+                                                showLanguagePicker = false
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    if (isSelected) Icons.Default.RadioButtonChecked
+                                                    else Icons.Default.RadioButtonUnchecked,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp),
+                                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
                                                 )
-                                                Text(
-                                                    lang.tag,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = Color.Gray
-                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        lang.displayName,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                                                else MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Text(
+                                                        lang.tag,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = Color.Gray
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-
-                    Spacer(Modifier.height(24.dp))
-
-                    // ============== Glasses Connection Section ==============
-                    if (!debugModeEnabled) {
-                        Text("Glasses Connection", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                when (glassesState) {
-                                    is GlassesConnectionManager.ConnectionState.Connected -> Icons.Default.CheckCircle
-                                    is GlassesConnectionManager.ConnectionState.Connecting,
-                                    is GlassesConnectionManager.ConnectionState.Scanning,
-                                    is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> Icons.Default.Sync
-                                    is GlassesConnectionManager.ConnectionState.Error -> Icons.Default.Error
-                                    else -> Icons.Default.BluetoothDisabled
-                                },
-                                contentDescription = null,
-                                tint = when (glassesState) {
-                                    is GlassesConnectionManager.ConnectionState.Connected -> Color(0xFF4CAF50)
-                                    is GlassesConnectionManager.ConnectionState.Connecting,
-                                    is GlassesConnectionManager.ConnectionState.Scanning,
-                                    is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> Color(0xFFFFC107)
-                                    is GlassesConnectionManager.ConnectionState.Error -> Color(0xFFF44336)
-                                    else -> Color.Gray
-                                },
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                when (glassesState) {
-                                    is GlassesConnectionManager.ConnectionState.Connected ->
-                                        "Connected: ${glassesState.deviceName}"
-                                    is GlassesConnectionManager.ConnectionState.Connecting -> "Connecting..."
-                                    is GlassesConnectionManager.ConnectionState.Scanning -> "Scanning for glasses..."
-                                    is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> "Setting up WiFi P2P..."
-                                    is GlassesConnectionManager.ConnectionState.Error -> "Error: ${glassesState.message}"
-                                    else -> "Not connected"
-                                },
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-
-                        if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
-                            Spacer(Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    if (wifiP2PConnected) Icons.Default.WifiTethering else Icons.Default.WifiTetheringOff,
-                                    contentDescription = null,
-                                    tint = if (wifiP2PConnected) Color(0xFF4CAF50) else Color.Gray,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    if (wifiP2PConnected) "WiFi P2P: Connected" else "WiFi P2P: Not connected",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (wifiP2PConnected) Color(0xFF4CAF50) else Color.Gray
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val isScanning = glassesState is GlassesConnectionManager.ConnectionState.Scanning
-
-                            OutlinedButton(
-                                onClick = {
-                                    if (isScanning) glassesManager?.stopScanning()
-                                    else {
-                                        glassesManager?.startScanning()
-                                        showDeviceList = true
-                                    }
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    if (isScanning) Icons.Default.Stop else Icons.Default.BluetoothSearching,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(if (isScanning) "Stop" else "Scan")
-                            }
-
-                            if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
-                                if (!wifiP2PConnected) {
-                                    Button(
-                                        onClick = { glassesManager?.initWifiP2P() },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.WifiTethering, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("WiFi P2P")
-                                    }
-                                }
-
-                                OutlinedButton(
-                                    onClick = { glassesManager?.disconnect() },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Disconnect")
-                                }
-                            }
-                        }
-
-                        // Clear cached glasses SN
-                        if (RokidSdkManager.hasCachedSn()) {
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = { RokidSdkManager.clearCachedSn() },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Clear saved glasses SN")
-                            }
-                            Text(
-                                "Use if switching to different glasses",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
-                            )
-                        }
-
-                        if (showDeviceList && discoveredDevices.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Found ${discoveredDevices.size} device(s):",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
-                            )
-                            Spacer(Modifier.height(4.dp))
-
-                            discoveredDevices.forEach { device ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(device.name, style = MaterialTheme.typography.bodyMedium)
-                                        Text(
-                                            "${device.address} (RSSI: ${device.rssi})",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = Color.Gray
-                                        )
-                                    }
-                                    TextButton(
-                                        onClick = {
-                                            glassesManager?.connectToDevice(device)
-                                            showDeviceList = false
-                                        }
-                                    ) {
-                                        Text("Connect")
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.height(24.dp))
-                    }
-
-                    // ============== Installation Section ==============
-                    if (sdkConnected) {
-                        Text("Glasses App Installation", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(8.dp))
-
-                        Text(
-                            "Install via Bluetooth + WiFi P2P",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray
-                        )
-                        Spacer(Modifier.height(8.dp))
-
-                        Button(
-                            onClick = { apkInstaller.installViaSdk() },
-                            enabled = installState is ApkInstaller.InstallState.Idle ||
-                                     installState is ApkInstaller.InstallState.Error ||
-                                     installState is ApkInstaller.InstallState.Success,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Install via SDK")
-                        }
-
-                        Spacer(Modifier.height(16.dp))
-
-                        InstallationSection(
-                            installState = installState,
-                            onCancel = onCancelInstall,
-                            onOpenApp = onOpenGlassesApp,
-                            onRetry = { apkInstaller.installViaSdk() }
-                        )
                     }
                 }
             }

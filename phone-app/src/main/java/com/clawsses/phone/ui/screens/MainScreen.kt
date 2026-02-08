@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.os.Build
 import com.clawsses.phone.glasses.ApkInstaller
 import com.clawsses.phone.glasses.GlassesConnectionManager
 import com.clawsses.phone.glasses.RokidSdkManager
@@ -853,7 +854,7 @@ fun SettingsDialog(
     val selectedLanguage = voiceLanguageManager?.selectedLanguage?.collectAsState()?.value ?: ""
     var showLanguagePicker by remember { mutableStateOf(false) }
 
-    val tabTitles = listOf("Glasses Connection", "OpenClaw Server", "Customize")
+    val tabTitles = listOf("Glasses", "OpenClaw", "Customize")
     var selectedTab by remember { mutableIntStateOf(0) }
 
     AlertDialog(
@@ -885,34 +886,36 @@ fun SettingsDialog(
                 // ============== Tab 0: Glasses Connection ==============
                 0 -> LazyColumn {
                     item {
-                        // Debug mode toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Debug Mode", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "Use WebSocket instead of Bluetooth for glasses",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
+                        if (isEmulator()) {
+                            // Debug mode toggle (only shown in emulator)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Debug Mode", style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        "Use WebSocket instead of Bluetooth for glasses",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Switch(
+                                    checked = debugModeEnabled,
+                                    onCheckedChange = onDebugModeChange
                                 )
                             }
-                            Switch(
-                                checked = debugModeEnabled,
-                                onCheckedChange = onDebugModeChange
-                            )
-                        }
 
-                        if (debugModeEnabled) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Glasses app connects to port 8081.\n" +
-                                "Run: adb forward tcp:8081 tcp:8081",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            if (debugModeEnabled) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "Glasses app connects to port 8081.\n" +
+                                    "Run: adb forward tcp:8081 tcp:8081",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
 
                         if (!debugModeEnabled) {
@@ -1394,6 +1397,19 @@ private fun startVoiceRecognition(
  * Build a chat_history JSON message for sending to glasses.
  * Truncates long messages and limits total size for CXR/Bluetooth safety.
  */
+private fun isEmulator(): Boolean {
+    return (Build.FINGERPRINT.contains("generic")
+            || Build.FINGERPRINT.contains("emulator")
+            || Build.MODEL.contains("Emulator")
+            || Build.MODEL.contains("Android SDK built for")
+            || Build.MODEL.contains("sdk_gphone")
+            || Build.MANUFACTURER.contains("Genymotion")
+            || Build.HARDWARE.contains("goldfish")
+            || Build.HARDWARE.contains("ranchu")
+            || Build.PRODUCT.contains("sdk")
+            || Build.PRODUCT.contains("emulator"))
+}
+
 private fun buildChatHistoryJson(messages: List<ChatMessage>): String {
     // Take only the most recent messages — CXR channel has limited bandwidth
     val maxMessages = 20

@@ -185,7 +185,17 @@ class OpenClawClient(
                     addProperty("idempotencyKey", idempotencyKey)
                     addProperty("message", text)
                     if (imageBase64 != null) {
-                        addProperty("image", imageBase64)
+                        val mimeType = detectImageMimeType(imageBase64)
+                        val ext = if (mimeType == "image/webp") "webp" else "jpg"
+                        val attachment = JsonObject().apply {
+                            addProperty("type", "image")
+                            addProperty("mimeType", mimeType)
+                            addProperty("fileName", "glasses-photo.$ext")
+                            addProperty("content", imageBase64)
+                        }
+                        val attachments = JsonArray()
+                        attachments.add(attachment)
+                        add("attachments", attachments)
                     }
                 }
 
@@ -277,7 +287,7 @@ class OpenClawClient(
             try {
                 val params = JsonObject().apply {
                     addProperty("sessionKey", key)
-                    addProperty("limit", 200)
+                    addProperty("limit", 50)
                 }
                 Log.d(TAG, "Requesting chat history for session $key")
                 val response = sendRequest(OpenClawMethods.CHAT_HISTORY, params)
@@ -654,5 +664,22 @@ class OpenClawClient(
             deferred.completeExceptionally(Exception(reason))
         }
         pendingRequests.clear()
+    }
+
+    /** Detect image MIME type from base64 magic bytes. */
+    private fun detectImageMimeType(base64: String): String {
+        // Decode just enough bytes to check the magic header
+        val prefix = base64.take(16)
+        return try {
+            val bytes = android.util.Base64.decode(prefix, android.util.Base64.DEFAULT)
+            when {
+                bytes.size >= 4 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() -> "image/jpeg"
+                bytes.size >= 4 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() -> "image/webp"
+                bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() -> "image/png"
+                else -> "image/webp" // Default for CXR SDK photos
+            }
+        } catch (e: Exception) {
+            "image/webp"
+        }
     }
 }

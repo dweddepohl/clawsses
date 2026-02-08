@@ -9,6 +9,7 @@ import com.rokid.cxr.client.extend.CxrApi
 import com.rokid.cxr.client.extend.callbacks.ApkStatusCallback
 import com.rokid.cxr.client.extend.callbacks.BluetoothStatusCallback
 import com.rokid.cxr.client.extend.callbacks.WifiP2PStatusCallback
+import com.rokid.cxr.client.extend.callbacks.PhotoResultCallback
 import com.rokid.cxr.client.extend.listeners.CustomCmdListener
 import com.rokid.cxr.client.utils.ValueUtil
 import android.util.Base64
@@ -80,6 +81,9 @@ object RokidSdkManager {
     var onAiKeyDown: (() -> Unit)? = null
     var onAiKeyUp: (() -> Unit)? = null
     var onAiExit: (() -> Unit)? = null
+
+    // Photo capture callback
+    var onPhotoResult: ((status: ValueUtil.CxrStatus?, photoBytes: ByteArray?) -> Unit)? = null
 
     private val bluetoothCallback = object : BluetoothStatusCallback {
         override fun onConnectionInfo(socketUuid: String?, macAddress: String?, rokidAccount: String?, deviceType: Int) {
@@ -722,6 +726,30 @@ object RokidSdkManager {
     fun notifyTtsAudioFinished(): ValueUtil.CxrStatus? {
         Log.d(TAG, "Notifying glasses: TTS finished")
         return cxrApi?.notifyTtsAudioFinished()
+    }
+
+    // --- Camera methods (for AI photo capture via glasses camera) ---
+
+    private val photoResultCallback = object : PhotoResultCallback {
+        override fun onPhotoResult(status: ValueUtil.CxrStatus?, photo: ByteArray?) {
+            Log.d(TAG, "Photo result: status=$status, bytes=${photo?.size}")
+            onPhotoResult?.invoke(status, photo)
+        }
+    }
+
+    fun openGlassCamera(width: Int = 1280, height: Int = 720, quality: Int = 75): ValueUtil.CxrStatus? {
+        Log.d(TAG, "Opening glass camera: ${width}x${height} quality=$quality")
+        return cxrApi?.openGlassCamera(width, height, quality)
+    }
+
+    fun takeGlassPhoto(width: Int = 1280, height: Int = 720, quality: Int = 75): ValueUtil.CxrStatus? {
+        Log.d(TAG, "Taking glass photo: ${width}x${height} quality=$quality")
+        return cxrApi?.takeGlassPhoto(width, height, quality, photoResultCallback)
+    }
+
+    fun takeGlassPhotoGlobal(width: Int = 1280, height: Int = 720, quality: Int = 75): ValueUtil.CxrStatus? {
+        Log.d(TAG, "Taking glass photo (global): ${width}x${height} quality=$quality")
+        return cxrApi?.takeGlassPhotoGlobal(width, height, quality, photoResultCallback)
     }
 
     /**

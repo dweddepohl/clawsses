@@ -1,6 +1,10 @@
 package com.clawsses.glasses
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.util.Base64
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -8,10 +12,14 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.clawsses.glasses.camera.CameraCapture
+import com.clawsses.glasses.camera.PhotoCaptureState
 import com.clawsses.glasses.input.GestureHandler
 import com.clawsses.glasses.input.GestureHandler.Gesture
 import com.clawsses.glasses.service.PhoneConnectionService
@@ -44,6 +52,7 @@ class HudActivity : ComponentActivity() {
 
         const val DEBUG_HOST = "10.0.2.2"
         const val DEBUG_PORT = 8081
+        private const val CAMERA_PERMISSION_REQUEST = 1001
 
         private fun isEmulator(): Boolean {
             return (Build.FINGERPRINT.contains("generic")
@@ -63,6 +72,7 @@ class HudActivity : ComponentActivity() {
     private lateinit var gestureHandler: GestureHandler
     private lateinit var phoneConnection: PhoneConnectionService
     private lateinit var voiceHandler: GlassesVoiceHandler
+    private lateinit var cameraCapture: CameraCapture
 
     // Debug keyboard input mode
     private var isCapturingKeyboardInput = false
@@ -97,6 +107,8 @@ class HudActivity : ComponentActivity() {
         voiceHandler.sendToPhone = { message -> phoneConnection.sendToPhone(message) }
         voiceHandler.initialize()
 
+        cameraCapture = CameraCapture(this)
+
         // Observe voice state
         lifecycleScope.launch {
             voiceHandler.voiceState.collect { voiceState ->
@@ -115,6 +127,34 @@ class HudActivity : ComponentActivity() {
                     voiceState = newVoiceState,
                     voiceText = newVoiceText
                 )
+            }
+        }
+
+        // Observe camera capture state
+        lifecycleScope.launch {
+            cameraCapture.state.collect { photoState ->
+                when (photoState) {
+                    is PhotoCaptureState.Captured -> {
+                        hudState.value = hudState.value.copy(
+                            photoBase64 = photoState.base64,
+                            photoThumbnail = photoState.thumbnail
+                        )
+                    }
+                    is PhotoCaptureState.Error -> {
+                        Log.e(GlassesApp.TAG, "Photo capture error: ${photoState.message}")
+                        lifecycleScope.launch {
+                            delay(3000)
+                            cameraCapture.clearPhoto()
+                        }
+                    }
+                    is PhotoCaptureState.Idle -> {
+                        hudState.value = hudState.value.copy(
+                            photoBase64 = null,
+                            photoThumbnail = null
+                        )
+                    }
+                    is PhotoCaptureState.Capturing -> { /* UI shows CAPTURING via photoThumbnail == null check */ }
+                }
             }
         }
 
@@ -435,21 +475,27 @@ class HudActivity : ComponentActivity() {
         if (text.isEmpty()) return
 
         // Send user_input to phone
+        val photoBase64 = current.photoBase64
         val json = JSONObject().apply {
             put("type", "user_input")
             put("text", text)
-            if (current.hasPhoto) {
-                // Photo is handled separately — glasses camera not yet implemented
-                // Placeholder for future photo attachment
+            // Debug mode: include actual image data; production: phone has it
+            if (photoBase64 != null && photoBase64 != "phone") {
+                put("imageBase64", photoBase64)
             }
         }
         phoneConnection.sendToPhone(json.toString())
 
-        // Clear input
-        hudState.value = current.copy(
-            inputText = "",
-            hasPhoto = false
-        )
+        // Clear input and photo
+        if (photoBase64 != null) {
+            if (DEBUG_MODE) {
+                cameraCapture.clearPhoto()
+            } else {
+                // Just clear local HUD state — phone clears pendingPhotoBase64 when processing user_input
+                hudState.value = hudState.value.copy(photoBase64 = null, photoThumbnail = null)
+            }
+        }
+        hudState.value = hudState.value.copy(inputText = "")
 
         Log.d(GlassesApp.TAG, "Submitted input: ${text.take(50)}")
     }
@@ -487,7 +533,13 @@ class HudActivity : ComponentActivity() {
 
     private fun handleMoreMenuGesture(gesture: Gesture) {
         val current = hudState.value
-        val items = MoreMenuItem.entries
+        val items = MoreMenuItem.entries.filter { item ->
+            when (item) {
+                MoreMenuItem.REMOVE_PHOTO -> current.photoBase64 != null
+                MoreMenuItem.PHOTO -> current.photoBase64 == null
+                else -> true
+            }
+        }
         val itemCount = items.size
 
         when (gesture) {
@@ -531,12 +583,26 @@ class HudActivity : ComponentActivity() {
                 )
             }
             MoreMenuItem.PHOTO -> {
-                // TODO: trigger glasses camera capture
-                hudState.value = current.copy(hasPhoto = true)
-                Log.d(GlassesApp.TAG, "Photo capture requested (not yet implemented)")
+                if (DEBUG_MODE) {
+                    // Debug: capture locally with Camera2
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        cameraCapture.capture()
+                    } else {
+                        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
+                    }
+                } else {
+                    // Production: request phone to capture via CXR SDK
+                    phoneConnection.sendToPhone("""{"type":"take_photo"}""")
+                    Log.d(GlassesApp.TAG, "Requested photo capture from phone")
+                }
             }
             MoreMenuItem.REMOVE_PHOTO -> {
-                hudState.value = current.copy(hasPhoto = false)
+                if (DEBUG_MODE) {
+                    cameraCapture.clearPhoto()
+                } else {
+                    phoneConnection.sendToPhone("""{"type":"remove_photo"}""")
+                    hudState.value = current.copy(photoBase64 = null, photoThumbnail = null)
+                }
             }
         }
     }
@@ -892,6 +958,25 @@ class HudActivity : ComponentActivity() {
                     voiceHandler.handleVoiceResult(resultType, text)
                 }
 
+                "photo_result" -> {
+                    val status = msg.optString("status", "")
+                    if (status == "captured") {
+                        val thumbnailBase64 = msg.optString("thumbnail", "")
+                        if (thumbnailBase64.isNotEmpty()) {
+                            val bytes = Base64.decode(thumbnailBase64, Base64.DEFAULT)
+                            val thumbnail = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            hudState.value = hudState.value.copy(
+                                photoBase64 = "phone",
+                                photoThumbnail = thumbnail
+                            )
+                            Log.d(GlassesApp.TAG, "Photo captured, thumbnail received")
+                        }
+                    } else {
+                        Log.e(GlassesApp.TAG, "Photo capture failed: ${msg.optString("message", "")}")
+                        hudState.value = hudState.value.copy(photoBase64 = null, photoThumbnail = null)
+                    }
+                }
+
                 else -> {
                     Log.d(GlassesApp.TAG, "Unknown message type: $type")
                 }
@@ -946,8 +1031,21 @@ class HudActivity : ComponentActivity() {
         return result.toString()
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                cameraCapture.capture()
+            } else {
+                Log.w(GlassesApp.TAG, "Camera permission denied")
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        cameraCapture.cleanup()
         voiceHandler.cleanup()
         phoneConnection.stop()
     }

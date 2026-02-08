@@ -36,8 +36,14 @@ import androidx.compose.ui.text.font.FontWeight
 import com.clawsses.glasses.R
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 
 /**
  * Display size presets for the 480x640 portrait HUD
@@ -137,7 +143,8 @@ data class ChatHudState(
     val scrollTrigger: Int = 0,
     val isScrolledToEnd: Boolean = false,
     val inputText: String = "",
-    val hasPhoto: Boolean = false,
+    val photoBase64: String? = null,
+    val photoThumbnail: Bitmap? = null,
     val isConnected: Boolean = false,
     val agentState: AgentState = AgentState.IDLE,
     val menuBarIndex: Int = 0,
@@ -347,6 +354,18 @@ fun HudScreen(
                     modifier = Modifier.weight(1f)
                 )
 
+                // PHOTO INDICATOR
+                AnimatedVisibility(
+                    visible = state.photoBase64 != null || state.photoThumbnail != null,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    PhotoIndicatorStrip(
+                        thumbnail = state.photoThumbnail,
+                        fontFamily = monoFontFamily
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(4.dp))
 
                 // MENU BAR
@@ -382,6 +401,7 @@ fun HudScreen(
         ) {
             MoreMenuOverlay(
                 selectedIndex = state.selectedMoreIndex,
+                hasPhoto = state.photoBase64 != null,
                 fontFamily = monoFontFamily
             )
         }
@@ -642,6 +662,61 @@ private fun ThinkingIndicator(
 }
 
 // ============================================================================
+// PHOTO INDICATOR STRIP
+// ============================================================================
+
+@Composable
+private fun PhotoIndicatorStrip(
+    thumbnail: Bitmap?,
+    fontFamily: FontFamily,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (thumbnail != null) {
+            Image(
+                bitmap = thumbnail.asImageBitmap(),
+                contentDescription = "Photo preview",
+                modifier = Modifier
+                    .size(width = 36.dp, height = 27.dp)
+                    .border(1.dp, HudColors.green, RoundedCornerShape(2.dp)),
+                contentScale = ContentScale.Crop,
+                colorFilter = ColorFilter.tint(HudColors.green, BlendMode.SrcAtop)
+            )
+            Text(
+                text = "[PHOTO]",
+                color = HudColors.green,
+                fontSize = 10.sp,
+                fontFamily = fontFamily,
+                fontWeight = FontWeight.Bold
+            )
+        } else {
+            // Capturing in progress — pulsing text
+            val infiniteTransition = rememberInfiniteTransition(label = "capture")
+            val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.3f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(animation = tween(400)),
+                label = "capturePulse"
+            )
+            Text(
+                text = "CAPTURING...",
+                color = HudColors.cyan,
+                fontSize = 10.sp,
+                fontFamily = fontFamily,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.alpha(alpha)
+            )
+        }
+    }
+}
+
+// ============================================================================
 // MENU BAR
 // ============================================================================
 
@@ -821,10 +896,17 @@ private fun SessionPickerOverlay(
 @Composable
 private fun MoreMenuOverlay(
     selectedIndex: Int,
+    hasPhoto: Boolean = false,
     fontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
-    val items = MoreMenuItem.entries
+    val items = MoreMenuItem.entries.filter { item ->
+        when (item) {
+            MoreMenuItem.PHOTO -> !hasPhoto
+            MoreMenuItem.REMOVE_PHOTO -> hasPhoto
+            else -> true
+        }
+    }
 
     Box(
         modifier = modifier

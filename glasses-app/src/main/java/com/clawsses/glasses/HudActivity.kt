@@ -498,11 +498,12 @@ class HudActivity : ComponentActivity() {
             }
             Gesture.TAP -> {
                 val selectedItem = items[current.selectedMoreIndex]
-                executeMoreMenuItem(selectedItem)
+                // Close more menu first, then execute (which may open a submenu)
                 hudState.value = current.copy(
                     showMoreMenu = false,
                     selectedMoreIndex = 0
                 )
+                executeMoreMenuItem(selectedItem)
             }
             Gesture.DOUBLE_TAP -> {
                 hudState.value = current.copy(
@@ -558,18 +559,18 @@ class HudActivity : ComponentActivity() {
                 hudState.value = current.copy(selectedSlashIndex = newIndex)
             }
             Gesture.TAP -> {
-                val command = commands[current.selectedSlashIndex]
+                val item = commands[current.selectedSlashIndex]
                 // Send slash command to phone
                 val json = JSONObject().apply {
                     put("type", "slash_command")
-                    put("command", command)
+                    put("command", item.command)
                 }
                 phoneConnection.sendToPhone(json.toString())
                 hudState.value = current.copy(
                     showSlashMenu = false,
                     selectedSlashIndex = 0
                 )
-                Log.d(GlassesApp.TAG, "Slash command: $command")
+                Log.d(GlassesApp.TAG, "Slash command: ${item.command}")
             }
             Gesture.DOUBLE_TAP -> {
                 hudState.value = current.copy(

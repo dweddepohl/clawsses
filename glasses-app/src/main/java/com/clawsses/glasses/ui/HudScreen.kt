@@ -162,8 +162,34 @@ data class ChatHudState(
     val totalMessages: Int get() = messages.size
 }
 
-// Common slash commands
-val SLASH_COMMANDS = listOf("/model", "/clear", "/compact", "/help", "/status")
+/**
+ * Slash command with display label.
+ * Commands are sent to the OpenClaw Gateway as chat messages.
+ */
+data class SlashCommandItem(val command: String, val description: String)
+
+/**
+ * Available slash commands from the OpenClaw Gateway.
+ * See .openclaw-ref/docs/tools/slash-commands.md for the full reference.
+ */
+val SLASH_COMMANDS = listOf(
+    SlashCommandItem("/help", "Show help"),
+    SlashCommandItem("/commands", "List commands"),
+    SlashCommandItem("/status", "Show status"),
+    SlashCommandItem("/model", "Switch model"),
+    SlashCommandItem("/compact", "Compact context"),
+    SlashCommandItem("/reset", "New session"),
+    SlashCommandItem("/stop", "Stop generation"),
+    SlashCommandItem("/think", "Thinking level"),
+    SlashCommandItem("/context", "Show context"),
+    SlashCommandItem("/usage", "Usage info"),
+    SlashCommandItem("/whoami", "Show identity"),
+    SlashCommandItem("/reasoning", "Toggle reasoning"),
+    SlashCommandItem("/elevated", "Elevated mode"),
+    SlashCommandItem("/verbose", "Verbose output"),
+    SlashCommandItem("/exec", "Exec settings"),
+    SlashCommandItem("/subagents", "Sub-agents"),
+)
 
 // ============================================================================
 // MAIN HUD SCREEN
@@ -886,6 +912,13 @@ private fun SlashCommandOverlay(
     fontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
+    val listState = rememberLazyListState()
+
+    // Keep selected item visible
+    LaunchedEffect(selectedIndex) {
+        listState.animateScrollToItem(selectedIndex)
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -894,7 +927,7 @@ private fun SlashCommandOverlay(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(24.dp)
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
             Text(
                 text = "SLASH COMMANDS",
@@ -904,39 +937,53 @@ private fun SlashCommandOverlay(
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            SLASH_COMMANDS.forEachIndexed { index, command ->
-                val isSelected = index == selectedIndex
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                itemsIndexed(SLASH_COMMANDS) { index, item ->
+                    val isSelected = index == selectedIndex
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (isSelected) HudColors.green.copy(alpha = 0.3f)
-                            else Color.Transparent
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (isSelected) HudColors.green.copy(alpha = 0.3f)
+                                else Color.Transparent
+                            )
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isSelected) "\u25B6" else " ",
+                            color = HudColors.green,
+                            fontSize = 12.sp,
+                            fontFamily = fontFamily
                         )
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isSelected) "\u25B6" else " ",
-                        color = HudColors.green,
-                        fontSize = 14.sp,
-                        fontFamily = fontFamily
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = command,
-                        color = if (isSelected) HudColors.green else HudColors.primaryText,
-                        fontSize = 14.sp,
-                        fontFamily = fontFamily,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = item.command,
+                            color = if (isSelected) HudColors.green else HudColors.primaryText,
+                            fontSize = 12.sp,
+                            fontFamily = fontFamily,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            modifier = Modifier.width(80.dp)
+                        )
+                        Text(
+                            text = item.description,
+                            color = HudColors.dimText,
+                            fontSize = 10.sp,
+                            fontFamily = fontFamily,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Text(
                 text = "\u2191\u2193 Navigate  TAP Select  2\u00D7TAP Cancel",

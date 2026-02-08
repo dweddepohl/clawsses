@@ -351,12 +351,20 @@ class GlassesConnectionManager(private val context: Context) {
      * Send a JSON message to glasses (chat messages, streaming chunks, status updates, etc.)
      */
     fun sendRawMessage(jsonMessage: String) {
-        if (_debugModeEnabled.value) {
-            debugServer?.sendToGlasses(jsonMessage)
+        val msgType = try {
+            org.json.JSONObject(jsonMessage).optString("type", "?")
+        } catch (_: Exception) { "?" }
+        val isDebug = _debugModeEnabled.value
+        Log.d(TAG, "sendRawMessage: type=$msgType, size=${jsonMessage.length}, debug=$isDebug")
+
+        if (isDebug) {
+            val sent = debugServer?.sendToGlasses(jsonMessage) ?: false
+            if (!sent) {
+                Log.w(TAG, "sendRawMessage: debugServer.sendToGlasses returned false (no client?)")
+            }
         } else {
             RokidSdkManager.sendToGlasses(jsonMessage)
         }
-        Log.d(TAG, "Sending raw message to glasses")
     }
 
     /**

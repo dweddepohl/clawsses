@@ -66,8 +66,9 @@ object OpenClawMethods {
     const val CHANNEL_SEND = "channel.send"
     const val CHANNEL_LIST = "channel.list"
     const val SESSION_CREATE = "session.create"
-    const val SESSION_LIST = "session.list"
+    const val SESSION_LIST = "sessions.list"
     const val SESSION_RUN = "session.run"
+    const val CHAT_HISTORY = "chat.history"
     const val CONFIG_GET = "config.get"
     const val SYSTEM_PRESENCE = "system-presence"
 }
@@ -189,7 +190,7 @@ data class ConnectionUpdate(
 data class SessionListUpdate(
     @SerializedName("type") val type: String = "session_list",
     @SerializedName("sessions") val sessions: List<SessionInfo>,
-    @SerializedName("currentSessionId") val currentSessionId: String? = null
+    @SerializedName("currentSessionKey") val currentSessionKey: String? = null
 ) {
     fun toJson(): String = gson.toJson(this)
 
@@ -199,10 +200,16 @@ data class SessionListUpdate(
 }
 
 data class SessionInfo(
-    @SerializedName("id") val id: String,
-    @SerializedName("name") val name: String,
-    @SerializedName("isActive") val isActive: Boolean = false
-)
+    @SerializedName("key") val key: String,
+    @SerializedName("displayName") val displayName: String? = null,
+    @SerializedName("label") val label: String? = null,
+    @SerializedName("derivedTitle") val derivedTitle: String? = null,
+    @SerializedName("updatedAt") val updatedAt: Long? = null,
+    @SerializedName("kind") val kind: String? = null
+) {
+    /** Best available display name for this session */
+    val name: String get() = label ?: displayName ?: derivedTitle ?: key
+}
 
 // ============================================
 // Glasses -> Phone Messages
@@ -228,7 +235,7 @@ data class UserInput(
  */
 data class SessionAction(
     @SerializedName("type") val type: String,  // "list_sessions" or "switch_session"
-    @SerializedName("sessionId") val sessionId: String? = null
+    @SerializedName("sessionKey") val sessionKey: String? = null
 ) {
     fun toJson(): String = gson.toJson(this)
 

@@ -110,12 +110,19 @@ fun MainScreen() {
         }
     }
 
-    // Start/stop foreground service based on glasses connection state
+    // Start/stop foreground service based on glasses connection state,
+    // and send current chat history when glasses connect
     LaunchedEffect(glassesState) {
         when (glassesState) {
             is GlassesConnectionManager.ConnectionState.Connected -> {
                 android.util.Log.i("MainScreen", "Glasses connected — starting foreground service")
                 com.clawsses.phone.service.GlassesConnectionService.start(context)
+                // Send current chat history to glasses if we have any
+                val currentMessages = openClawClient.chatMessages.value
+                if (currentMessages.isNotEmpty()) {
+                    android.util.Log.i("MainScreen", "Sending ${currentMessages.size} history messages to newly connected glasses")
+                    glassesManager.sendRawMessage(buildChatHistoryJson(currentMessages))
+                }
             }
             is GlassesConnectionManager.ConnectionState.Disconnected -> {
                 android.util.Log.i("MainScreen", "Glasses disconnected — stopping foreground service")
@@ -136,6 +143,11 @@ fun MainScreen() {
     LaunchedEffect(Unit) {
         openClawClient.onChatMessage = { msg ->
             glassesManager.sendRawMessage(msg.toJson())
+        }
+        openClawClient.onChatHistory = { messages ->
+            val json = buildChatHistoryJson(messages)
+            android.util.Log.i("MainScreen", "Forwarding chat_history to glasses: ${messages.size} messages, ${json.length} chars")
+            glassesManager.sendRawMessage(json)
         }
         openClawClient.onAgentThinking = { msg ->
             glassesManager.sendRawMessage(msg.toJson())
@@ -242,10 +254,10 @@ fun MainScreen() {
                         openClawClient.requestSessions()
                     }
                     "switch_session" -> {
-                        val sessionId = json.optString("sessionId", "")
-                        android.util.Log.d("MainScreen", "Switching to session: $sessionId")
-                        if (sessionId.isNotEmpty()) {
-                            openClawClient.switchSession(sessionId)
+                        val sessionKey = json.optString("sessionKey", "")
+                        android.util.Log.d("MainScreen", "Switching to session: $sessionKey")
+                        if (sessionKey.isNotEmpty()) {
+                            openClawClient.switchSession(sessionKey)
                         }
                     }
                     "slash_command" -> {
@@ -1155,4 +1167,23 @@ private fun startVoiceRecognition(
             }
         }
     }
+}
+
+/**
+ * Build a chat_history JSON message for sending to glasses.
+ */
+private fun buildChatHistoryJson(messages: List<ChatMessage>): String {
+    return org.json.JSONObject().apply {
+        put("type", "chat_history")
+        val arr = org.json.JSONArray()
+        for (msg in messages) {
+            arr.put(org.json.JSONObject().apply {
+                put("id", msg.id)
+                put("role", msg.role)
+                put("content", msg.content)
+                put("timestamp", msg.timestamp)
+            })
+        }
+        put("messages", arr)
+    }.toString()
 }

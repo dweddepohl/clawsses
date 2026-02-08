@@ -4,6 +4,8 @@ import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.MessageDigest
@@ -25,6 +27,7 @@ class DebugGlassesServer(private val port: Int = 8081) {
     private var serverSocket: ServerSocket? = null
     private var clientSocket: Socket? = null
     private var scope: CoroutineScope? = null
+    private val writeMutex = Mutex()
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning
@@ -218,20 +221,22 @@ class DebugGlassesServer(private val port: Int = 8081) {
     fun sendToGlasses(message: String): Boolean {
         val currentSocket = clientSocket ?: return false
 
-        // Run on IO thread to avoid NetworkOnMainThreadException
+        // Run on IO thread with mutex to prevent concurrent frame writes
         scope?.launch {
-            try {
-                val payload = message.toByteArray(Charsets.UTF_8)
-                val frame = createWebSocketFrame(payload)
+            writeMutex.withLock {
+                try {
+                    val payload = message.toByteArray(Charsets.UTF_8)
+                    val frame = createWebSocketFrame(payload)
 
-                currentSocket.getOutputStream()?.let { output ->
-                    output.write(frame)
-                    output.flush()
+                    currentSocket.getOutputStream()?.let { output ->
+                        output.write(frame)
+                        output.flush()
+                    }
+
+                    Log.d(TAG, "Sent to glasses: ${payload.size} bytes, frame=${frame.size} bytes, preview=${message.take(80)}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending to glasses (${message.length} chars)", e)
                 }
-
-                Log.d(TAG, "Sent to glasses: ${message.take(100)}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending to glasses", e)
             }
         }
         return true

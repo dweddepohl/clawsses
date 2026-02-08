@@ -452,7 +452,7 @@ class HudActivity : ComponentActivity() {
             Gesture.TAP -> {
                 if (totalOptions > 0) {
                     val selected = current.availableSessions[current.selectedSessionIndex]
-                    switchToSession(selected.id)
+                    switchToSession(selected.key)
                 }
                 hudState.value = current.copy(showSessionPicker = false)
             }
@@ -657,10 +657,10 @@ class HudActivity : ComponentActivity() {
         phoneConnection.sendToPhone("""{"type":"list_sessions"}""")
     }
 
-    private fun switchToSession(sessionId: String) {
+    private fun switchToSession(sessionKey: String) {
         val json = JSONObject().apply {
             put("type", "switch_session")
-            put("sessionId", sessionId)
+            put("sessionKey", sessionKey)
         }
         phoneConnection.sendToPhone(json.toString())
     }
@@ -669,6 +669,7 @@ class HudActivity : ComponentActivity() {
 
     private fun handlePhoneMessage(json: String) {
         try {
+            Log.d(GlassesApp.TAG, "handlePhoneMessage: ${json.length} chars, preview=${json.take(120)}")
             val msg = JSONObject(json)
             val type = msg.optString("type", "")
 
@@ -706,6 +707,37 @@ class HudActivity : ComponentActivity() {
                     )
 
                     Log.d(GlassesApp.TAG, "Chat message ($role): ${content.take(50)}")
+                }
+
+                "chat_history" -> {
+                    // Batched session history — replace all messages and scroll to bottom
+                    val messagesArray = msg.optJSONArray("messages")
+                    val messages = mutableListOf<DisplayMessage>()
+
+                    if (messagesArray != null) {
+                        for (i in 0 until messagesArray.length()) {
+                            val msgObj = messagesArray.optJSONObject(i) ?: continue
+                            val id = msgObj.optString("id", "")
+                            val role = msgObj.optString("role", "assistant")
+                            val content = msgObj.optString("content", "")
+                            messages.add(DisplayMessage(
+                                id = id,
+                                role = role,
+                                lines = wrapText(content),
+                                isStreaming = false
+                            ))
+                        }
+                    }
+
+                    val current = hudState.value
+                    hudState.value = current.copy(
+                        messages = messages,
+                        agentState = AgentState.IDLE,
+                        scrollPosition = maxOf(0, messages.size - 1),
+                        scrollTrigger = current.scrollTrigger + 1
+                    )
+
+                    Log.d(GlassesApp.TAG, "Loaded ${messages.size} history messages")
                 }
 
                 "agent_thinking" -> {
@@ -777,31 +809,38 @@ class HudActivity : ComponentActivity() {
 
                 "connection_update" -> {
                     val connected = msg.optBoolean("connected", false)
-                    val sessionId = msg.optString("sessionId", "")
+                    val sessionKey = msg.optString("sessionId", "")
 
                     val current = hudState.value
                     hudState.value = current.copy(
                         isConnected = connected,
-                        currentSessionId = sessionId.ifEmpty { current.currentSessionId }
+                        currentSessionKey = sessionKey.ifEmpty { current.currentSessionKey }
                     )
 
-                    Log.d(GlassesApp.TAG, "Connection update: connected=$connected, session=$sessionId")
+                    Log.d(GlassesApp.TAG, "Connection update: connected=$connected, session=$sessionKey")
                 }
 
                 "session_list" -> {
                     // Session list from phone
                     val sessionsArray = msg.optJSONArray("sessions")
-                    val currentSessionId = msg.optString("currentSessionId", "")
+                    val currentSessionKey = msg.optString("currentSessionKey", "")
                     val sessions = mutableListOf<SessionPickerInfo>()
 
                     if (sessionsArray != null) {
                         for (i in 0 until sessionsArray.length()) {
                             val sessionObj = sessionsArray.optJSONObject(i)
                             if (sessionObj != null) {
+                                val key = sessionObj.optString("key", "")
+                                val label = sessionObj.optString("label", "")
+                                val displayName = sessionObj.optString("displayName", "")
+                                val derivedTitle = sessionObj.optString("derivedTitle", "")
+                                val kind = sessionObj.optString("kind", "")
+                                // Use best available name: label > displayName > derivedTitle > key
+                                val name = label.ifEmpty { displayName.ifEmpty { derivedTitle.ifEmpty { key } } }
                                 sessions.add(SessionPickerInfo(
-                                    id = sessionObj.optString("id", ""),
-                                    name = sessionObj.optString("name", ""),
-                                    isActive = sessionObj.optBoolean("isActive", false)
+                                    key = key,
+                                    name = name,
+                                    kind = kind.ifEmpty { null }
                                 ))
                             }
                         }
@@ -811,11 +850,11 @@ class HudActivity : ComponentActivity() {
                     hudState.value = current.copy(
                         showSessionPicker = true,
                         availableSessions = sessions,
-                        currentSessionId = currentSessionId.ifEmpty { current.currentSessionId },
-                        selectedSessionIndex = sessions.indexOfFirst { it.id == currentSessionId }.coerceAtLeast(0)
+                        currentSessionKey = currentSessionKey.ifEmpty { current.currentSessionKey },
+                        selectedSessionIndex = sessions.indexOfFirst { it.key == currentSessionKey }.coerceAtLeast(0)
                     )
 
-                    Log.d(GlassesApp.TAG, "Sessions: ${sessions.size}, current: $currentSessionId")
+                    Log.d(GlassesApp.TAG, "Sessions: ${sessions.size}, current: $currentSessionKey")
                 }
 
                 "voice_state" -> {

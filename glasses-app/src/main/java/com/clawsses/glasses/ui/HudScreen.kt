@@ -124,9 +124,9 @@ sealed class VoiceInputState {
  * Session info for session picker
  */
 data class SessionPickerInfo(
-    val id: String,
+    val key: String,
     val name: String,
-    val isActive: Boolean = false
+    val kind: String? = null
 )
 
 /**
@@ -149,7 +149,7 @@ data class ChatHudState(
     // Session picker
     val showSessionPicker: Boolean = false,
     val availableSessions: List<SessionPickerInfo> = emptyList(),
-    val currentSessionId: String? = null,
+    val currentSessionKey: String? = null,
     val selectedSessionIndex: Int = 0,
     // More menu
     val showMoreMenu: Boolean = false,
@@ -312,7 +312,7 @@ fun HudScreen(
         ) {
             SessionPickerOverlay(
                 sessions = state.availableSessions,
-                currentSessionId = state.currentSessionId,
+                currentSessionKey = state.currentSessionKey,
                 selectedIndex = state.selectedSessionIndex,
                 fontFamily = monoFontFamily
             )
@@ -679,7 +679,7 @@ private fun ChatMenuBar(
 @Composable
 private fun SessionPickerOverlay(
     sessions: List<SessionPickerInfo>,
-    currentSessionId: String?,
+    currentSessionKey: String?,
     selectedIndex: Int,
     fontFamily: FontFamily,
     modifier: Modifier = Modifier
@@ -704,45 +704,56 @@ private fun SessionPickerOverlay(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            sessions.forEachIndexed { index, session ->
-                val isSelected = index == selectedIndex
-                val isCurrent = session.id == currentSessionId
+            if (sessions.isEmpty()) {
+                Text(
+                    text = "No sessions available",
+                    color = HudColors.dimText,
+                    fontSize = 14.sp,
+                    fontFamily = fontFamily
+                )
+            } else {
+                sessions.forEachIndexed { index, session ->
+                    val isSelected = index == selectedIndex
+                    val isCurrent = session.key == currentSessionKey
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (isSelected) HudColors.green.copy(alpha = 0.3f)
-                            else Color.Transparent
-                        )
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (isSelected) HudColors.green.copy(alpha = 0.3f)
+                                else Color.Transparent
+                            )
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (isSelected) "\u25B6" else " ",
-                            color = HudColors.green,
-                            fontSize = 14.sp,
-                            fontFamily = fontFamily
-                        )
-                        Text(
-                            text = session.name.ifEmpty { session.id },
-                            color = if (isSelected) HudColors.green else HudColors.primaryText,
-                            fontSize = 14.sp,
-                            fontFamily = fontFamily,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                    if (isCurrent) {
-                        Text(
-                            text = "\u25CF",
-                            color = HudColors.cyan,
-                            fontSize = 12.sp
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (isSelected) "\u25B6" else " ",
+                                color = HudColors.green,
+                                fontSize = 14.sp,
+                                fontFamily = fontFamily
+                            )
+                            Text(
+                                text = session.name,
+                                color = if (isSelected) HudColors.green else HudColors.primaryText,
+                                fontSize = 14.sp,
+                                fontFamily = fontFamily,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1
+                            )
+                        }
+                        if (isCurrent) {
+                            Text(
+                                text = "\u25CF",
+                                color = HudColors.cyan,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             }

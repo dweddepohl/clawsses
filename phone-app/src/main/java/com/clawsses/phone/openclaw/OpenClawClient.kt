@@ -54,6 +54,7 @@ class OpenClawClient(
 
     // Callbacks for forwarding to glasses
     var onChatMessage: ((ChatMessage) -> Unit)? = null
+    var onChatHistory: ((List<ChatMessage>) -> Unit)? = null
     var onAgentThinking: ((AgentThinking) -> Unit)? = null
     var onChatStream: ((ChatStream) -> Unit)? = null
     var onChatStreamEnd: ((ChatStreamEnd) -> Unit)? = null
@@ -80,6 +81,9 @@ class OpenClawClient(
     private var activeRunId: String? = null
     private var activeMessageId: String? = null
     private var streamingContent = StringBuilder()
+
+    // Current session tracking
+    private var currentSessionKey: String? = null
 
     // Challenge nonce for auth handshake
     private var challengeNonce: String? = null
@@ -172,7 +176,7 @@ class OpenClawClient(
                 // Send to OpenClaw as chat.send
                 val idempotencyKey = UUID.randomUUID().toString()
                 val params = JsonObject().apply {
-                    addProperty("sessionKey", "main")
+                    addProperty("sessionKey", currentSessionKey ?: "main")
                     addProperty("idempotencyKey", idempotencyKey)
                     addProperty("message", text)
                     if (imageBase64 != null) {
@@ -204,12 +208,17 @@ class OpenClawClient(
     }
 
     /**
-     * Request the list of available sessions.
+     * Request the list of available sessions from the OpenClaw gateway.
+     * The server returns GatewaySessionRow objects with key, displayName, label,
+     * derivedTitle, updatedAt, kind, etc.
      */
     fun requestSessions() {
         scope.launch {
             try {
-                val response = sendRequest(OpenClawMethods.SESSION_LIST)
+                val params = JsonObject().apply {
+                    addProperty("includeDerivedTitles", true)
+                }
+                val response = sendRequest(OpenClawMethods.SESSION_LIST, params)
                 if (response.ok) {
                     val sessionsPayload = response.payload
                     val sessions = mutableListOf<SessionInfo>()
@@ -217,16 +226,20 @@ class OpenClawClient(
                     sessionsArray?.forEach { element ->
                         val obj = element.asJsonObject
                         sessions.add(SessionInfo(
-                            id = obj.get("id")?.asString ?: "",
-                            name = obj.get("name")?.asString ?: "",
-                            isActive = obj.get("isActive")?.asBoolean ?: false
+                            key = obj.get("key")?.asString ?: "",
+                            displayName = obj.get("displayName")?.asString,
+                            label = obj.get("label")?.asString,
+                            derivedTitle = obj.get("derivedTitle")?.asString,
+                            updatedAt = obj.get("updatedAt")?.asLong,
+                            kind = obj.get("kind")?.asString
                         ))
                     }
-                    val currentId = sessionsPayload?.get("currentSessionId")?.asString
                     onSessionList?.invoke(SessionListUpdate(
                         sessions = sessions,
-                        currentSessionId = currentId
+                        currentSessionKey = currentSessionKey
                     ))
+                } else {
+                    Log.e(TAG, "Session list request failed: ${response.error}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error requesting sessions", e)
@@ -235,23 +248,94 @@ class OpenClawClient(
     }
 
     /**
-     * Switch to a different session.
+     * Switch to a different session by key.
      */
-    fun switchSession(sessionId: String) {
+    fun switchSession(sessionKey: String) {
         scope.launch {
+            Log.d(TAG, "Switching to session: $sessionKey")
+            currentSessionKey = sessionKey
+            _chatMessages.value = emptyList()
+            notifyConnectionUpdate(true, sessionKey)
+            loadSessionHistory(sessionKey)
+        }
+    }
+
+    /**
+     * Load chat history for the current (or given) session from the gateway.
+     * Fetches messages via chat.history, populates local chat, and forwards to glasses.
+     * Always notifies glasses (even for empty history) so they can clear stale messages.
+     */
+    fun loadSessionHistory(sessionKey: String? = null) {
+        scope.launch {
+            val key = sessionKey ?: currentSessionKey ?: "main"
             try {
                 val params = JsonObject().apply {
-                    addProperty("sessionId", sessionId)
+                    addProperty("sessionKey", key)
+                    addProperty("limit", 200)
                 }
-                val response = sendRequest(OpenClawMethods.SESSION_RUN, params)
+                Log.d(TAG, "Requesting chat history for session $key")
+                val response = sendRequest(OpenClawMethods.CHAT_HISTORY, params)
                 if (response.ok) {
-                    Log.d(TAG, "Switched to session: $sessionId")
-                    // Clear local messages for new session
+                    val chatMessages = mutableListOf<ChatMessage>()
+                    val messagesArray = response.payload?.getAsJsonArray("messages")
+                    Log.d(TAG, "Chat history response: payload keys=${response.payload?.keySet()}, messages count=${messagesArray?.size() ?: "null"}")
+
+                    if (messagesArray != null && messagesArray.size() > 0) {
+                        for (element in messagesArray) {
+                            try {
+                                val msgObj = element.asJsonObject
+                                val role = msgObj.get("role")?.asString ?: continue
+                                // Only show user and assistant messages
+                                if (role != "user" && role != "assistant") continue
+
+                                // content can be either a string or an array of {type,text} blocks
+                                val contentElement = msgObj.get("content")
+                                val content: String = when {
+                                    contentElement == null -> continue
+                                    contentElement.isJsonPrimitive -> contentElement.asString
+                                    contentElement.isJsonArray -> {
+                                        val textBuilder = StringBuilder()
+                                        for (block in contentElement.asJsonArray) {
+                                            val blockObj = block.asJsonObject
+                                            if (blockObj.get("type")?.asString == "text") {
+                                                val text = blockObj.get("text")?.asString
+                                                if (text != null) textBuilder.append(text)
+                                            }
+                                        }
+                                        textBuilder.toString()
+                                    }
+                                    else -> continue
+                                }
+                                if (content.isEmpty()) continue
+
+                                val id = UUID.randomUUID().toString()
+                                val timestamp = msgObj.get("timestamp")?.asLong ?: System.currentTimeMillis()
+                                chatMessages.add(ChatMessage(
+                                    id = id,
+                                    role = role,
+                                    content = content,
+                                    timestamp = timestamp
+                                ))
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Skipping unparseable history message", e)
+                            }
+                        }
+                    }
+
+                    Log.d(TAG, "Loaded ${chatMessages.size} history messages for session $key")
+                    _chatMessages.value = chatMessages
+                    onChatHistory?.invoke(chatMessages)
+                } else {
+                    Log.e(TAG, "Chat history request failed: ${response.error}")
+                    // Still notify with empty list so glasses clear stale messages
                     _chatMessages.value = emptyList()
-                    notifyConnectionUpdate(true, sessionId)
+                    onChatHistory?.invoke(emptyList())
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error switching session", e)
+                Log.e(TAG, "Error loading session history for $key", e)
+                // Still notify with empty list so glasses clear stale messages
+                _chatMessages.value = emptyList()
+                onChatHistory?.invoke(emptyList())
             }
         }
     }
@@ -398,8 +482,22 @@ class OpenClawClient(
                         Log.d(TAG, "Persisted deviceToken")
                     }
 
+                    // Extract the default session key from the hello-ok snapshot
+                    val snapshot = response.payload?.getAsJsonObject("snapshot")
+                    val sessionDefaults = snapshot?.getAsJsonObject("sessionDefaults")
+                    val mainSessionKey = sessionDefaults?.get("mainSessionKey")?.asString
+                    if (mainSessionKey != null) {
+                        currentSessionKey = mainSessionKey
+                        Log.d(TAG, "Default session key from gateway: $mainSessionKey")
+                    } else {
+                        Log.w(TAG, "No mainSessionKey in connect response, snapshot keys=${snapshot?.keySet()}")
+                    }
+
                     _connectionState.value = ConnectionState.Connected
-                    notifyConnectionUpdate(true)
+                    notifyConnectionUpdate(true, currentSessionKey)
+
+                    // Load history for the current session on connect
+                    loadSessionHistory()
                 } else {
                     val errorMsg = response.error?.get("message")?.asString ?: "Authentication failed"
                     val errorCode = response.error?.get("code")?.asString ?: ""

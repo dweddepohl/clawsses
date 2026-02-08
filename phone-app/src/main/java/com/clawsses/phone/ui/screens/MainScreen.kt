@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -24,6 +25,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,6 +60,7 @@ import com.clawsses.phone.openclaw.OpenClawClient
 import com.clawsses.phone.voice.VoiceCommandHandler
 import com.clawsses.phone.voice.VoiceLanguageManager
 import com.clawsses.shared.ChatMessage
+import com.clawsses.shared.SessionInfo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +83,8 @@ fun MainScreen() {
     val isListening by voiceHandler.isListening.collectAsState()
     val installState by apkInstaller.installState.collectAsState()
     val selectedVoiceLanguage by voiceLanguageManager.selectedLanguage.collectAsState()
+    val sessionList by openClawClient.sessionList.collectAsState()
+    val currentSessionKey by openClawClient.currentSessionKey.collectAsState()
 
     // Persist OpenClaw settings in SharedPreferences
     val prefs = remember { context.getSharedPreferences("clawsses", android.content.Context.MODE_PRIVATE) }
@@ -93,6 +99,7 @@ fun MainScreen() {
     }
     var inputText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
+    var showSessionPicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // Initialize voice handler and query available languages
@@ -107,6 +114,13 @@ fun MainScreen() {
                 put("text", partialText)
             }
             glassesManager.sendRawMessage(stateMsg.toString())
+        }
+    }
+
+    // Fetch session list when OpenClaw connects
+    LaunchedEffect(openClawState) {
+        if (openClawState is OpenClawClient.ConnectionState.Connected) {
+            openClawClient.requestSessions()
         }
     }
 
@@ -375,6 +389,26 @@ fun MainScreen() {
                 }
             )
 
+            // Session selector
+            if (openClawState is OpenClawClient.ConnectionState.Connected) {
+                SessionSelector(
+                    sessions = sessionList,
+                    currentSessionKey = currentSessionKey,
+                    expanded = showSessionPicker,
+                    onToggle = {
+                        if (!showSessionPicker) {
+                            openClawClient.requestSessions()
+                        }
+                        showSessionPicker = !showSessionPicker
+                    },
+                    onSelect = { session ->
+                        showSessionPicker = false
+                        openClawClient.switchSession(session.key)
+                    },
+                    onDismiss = { showSessionPicker = false }
+                )
+            }
+
             // Chat messages
             Box(
                 modifier = Modifier
@@ -595,6 +629,92 @@ fun ConnectionStatusBar(
                 },
                 modifier = Modifier.size(16.dp)
             )
+        }
+    }
+}
+
+@Composable
+fun SessionSelector(
+    sessions: List<SessionInfo>,
+    currentSessionKey: String?,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onSelect: (SessionInfo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val currentSession = sessions.firstOrNull { it.key == currentSessionKey }
+    val displayName = currentSession?.name ?: currentSessionKey ?: "No session"
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Forum,
+                contentDescription = "Session",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+                maxLines = 1
+            )
+            Icon(
+                if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismiss,
+            modifier = Modifier.fillMaxWidth(0.9f)
+        ) {
+            if (sessions.isEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("Loading sessions...") },
+                    onClick = {},
+                    enabled = false
+                )
+            } else {
+                sessions.forEach { session ->
+                    val isCurrent = session.key == currentSessionKey
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isCurrent) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Current",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = session.name,
+                                    color = if (isCurrent) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1
+                                )
+                            }
+                        },
+                        onClick = { onSelect(session) }
+                    )
+                }
+            }
         }
     }
 }

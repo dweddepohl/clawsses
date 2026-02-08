@@ -82,8 +82,13 @@ class OpenClawClient(
     private var activeMessageId: String? = null
     private var streamingContent = StringBuilder()
 
-    // Current session tracking
-    private var currentSessionKey: String? = null
+    // Current session tracking (exposed as StateFlow for phone UI)
+    private val _currentSessionKey = MutableStateFlow<String?>(null)
+    val currentSessionKey: StateFlow<String?> = _currentSessionKey.asStateFlow()
+
+    // Available sessions (exposed as StateFlow for phone UI)
+    private val _sessionList = MutableStateFlow<List<SessionInfo>>(emptyList())
+    val sessionList: StateFlow<List<SessionInfo>> = _sessionList.asStateFlow()
 
     // Challenge nonce for auth handshake
     private var challengeNonce: String? = null
@@ -176,7 +181,7 @@ class OpenClawClient(
                 // Send to OpenClaw as chat.send
                 val idempotencyKey = UUID.randomUUID().toString()
                 val params = JsonObject().apply {
-                    addProperty("sessionKey", currentSessionKey ?: "main")
+                    addProperty("sessionKey", _currentSessionKey.value ?: "main")
                     addProperty("idempotencyKey", idempotencyKey)
                     addProperty("message", text)
                     if (imageBase64 != null) {
@@ -234,9 +239,10 @@ class OpenClawClient(
                             kind = obj.get("kind")?.asString
                         ))
                     }
+                    _sessionList.value = sessions
                     onSessionList?.invoke(SessionListUpdate(
                         sessions = sessions,
-                        currentSessionKey = currentSessionKey
+                        currentSessionKey = _currentSessionKey.value
                     ))
                 } else {
                     Log.e(TAG, "Session list request failed: ${response.error}")
@@ -253,7 +259,7 @@ class OpenClawClient(
     fun switchSession(sessionKey: String) {
         scope.launch {
             Log.d(TAG, "Switching to session: $sessionKey")
-            currentSessionKey = sessionKey
+            _currentSessionKey.value = sessionKey
             _chatMessages.value = emptyList()
             notifyConnectionUpdate(true, sessionKey)
             loadSessionHistory(sessionKey)
@@ -267,7 +273,7 @@ class OpenClawClient(
      */
     fun loadSessionHistory(sessionKey: String? = null) {
         scope.launch {
-            val key = sessionKey ?: currentSessionKey ?: "main"
+            val key = sessionKey ?: _currentSessionKey.value ?: "main"
             try {
                 val params = JsonObject().apply {
                     addProperty("sessionKey", key)
@@ -487,14 +493,14 @@ class OpenClawClient(
                     val sessionDefaults = snapshot?.getAsJsonObject("sessionDefaults")
                     val mainSessionKey = sessionDefaults?.get("mainSessionKey")?.asString
                     if (mainSessionKey != null) {
-                        currentSessionKey = mainSessionKey
+                        _currentSessionKey.value = mainSessionKey
                         Log.d(TAG, "Default session key from gateway: $mainSessionKey")
                     } else {
                         Log.w(TAG, "No mainSessionKey in connect response, snapshot keys=${snapshot?.keySet()}")
                     }
 
                     _connectionState.value = ConnectionState.Connected
-                    notifyConnectionUpdate(true, currentSessionKey)
+                    notifyConnectionUpdate(true, _currentSessionKey.value)
 
                     // Load history for the current session on connect
                     loadSessionHistory()

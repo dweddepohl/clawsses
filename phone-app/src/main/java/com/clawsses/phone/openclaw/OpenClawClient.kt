@@ -185,12 +185,19 @@ class OpenClawClient(
                     addProperty("idempotencyKey", idempotencyKey)
                     addProperty("message", text)
                     if (imageBase64 != null) {
+<<<<<<< HEAD
                         val mimeType = detectImageMimeType(imageBase64)
                         val ext = if (mimeType == "image/webp") "webp" else "jpg"
                         val attachment = JsonObject().apply {
                             addProperty("type", "image")
                             addProperty("mimeType", mimeType)
                             addProperty("fileName", "glasses-photo.$ext")
+=======
+                        val attachment = JsonObject().apply {
+                            addProperty("type", "image")
+                            addProperty("mimeType", "image/jpeg")
+                            addProperty("fileName", "glasses-photo.jpg")
+>>>>>>> e082171 (Task PHTA-f2a final changes)
                             addProperty("content", imageBase64)
                         }
                         val attachments = JsonArray()

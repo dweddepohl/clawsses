@@ -2,7 +2,10 @@ package com.clawsses.glasses
 
 import android.Manifest
 import android.content.pm.PackageManager
+<<<<<<< HEAD
 import android.graphics.BitmapFactory
+=======
+>>>>>>> e082171 (Task PHTA-f2a final changes)
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
@@ -479,14 +482,19 @@ class HudActivity : ComponentActivity() {
         val json = JSONObject().apply {
             put("type", "user_input")
             put("text", text)
+<<<<<<< HEAD
             // Debug mode: include actual image data; production: phone has it
             if (photoBase64 != null && photoBase64 != "phone") {
+=======
+            if (photoBase64 != null) {
+>>>>>>> e082171 (Task PHTA-f2a final changes)
                 put("imageBase64", photoBase64)
             }
         }
         phoneConnection.sendToPhone(json.toString())
 
         // Clear input and photo
+<<<<<<< HEAD
         if (photoBase64 != null) {
             if (DEBUG_MODE) {
                 cameraCapture.clearPhoto()
@@ -496,6 +504,12 @@ class HudActivity : ComponentActivity() {
             }
         }
         hudState.value = hudState.value.copy(inputText = "")
+=======
+        hudState.value = current.copy(inputText = "")
+        if (photoBase64 != null) {
+            cameraCapture.clearPhoto()
+        }
+>>>>>>> e082171 (Task PHTA-f2a final changes)
 
         Log.d(GlassesApp.TAG, "Submitted input: ${text.take(50)}")
     }
@@ -583,6 +597,7 @@ class HudActivity : ComponentActivity() {
                 )
             }
             MoreMenuItem.PHOTO -> {
+<<<<<<< HEAD
                 if (DEBUG_MODE) {
                     // Debug: capture locally with Camera2
                     if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -603,6 +618,16 @@ class HudActivity : ComponentActivity() {
                     phoneConnection.sendToPhone("""{"type":"remove_photo"}""")
                     hudState.value = current.copy(photoBase64 = null, photoThumbnail = null)
                 }
+=======
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    cameraCapture.capture()
+                } else {
+                    ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
+                }
+            }
+            MoreMenuItem.REMOVE_PHOTO -> {
+                cameraCapture.clearPhoto()
+>>>>>>> e082171 (Task PHTA-f2a final changes)
             }
         }
     }

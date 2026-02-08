@@ -543,13 +543,16 @@ class HudActivity : ComponentActivity() {
         val text = current.inputText.trim()
         if (text.isEmpty()) return
 
+        val thumbnails = current.photoThumbnails.toList()
+        Log.d(GlassesApp.TAG, "submitInput: text='${text.take(50)}', photos=${thumbnails.size}, focusArea=${current.focusedArea}")
+
         // Add user message to display immediately (optimistic update)
         val userMsg = DisplayMessage(
             id = "local-${System.currentTimeMillis()}",
             role = "user",
             content = text,
             isStreaming = false,
-            thumbnails = current.photoThumbnails.toList()
+            thumbnails = thumbnails
         )
         val messages = current.messages.toMutableList()
         messages.add(userMsg)
@@ -561,8 +564,8 @@ class HudActivity : ComponentActivity() {
         }
         phoneConnection.sendToPhone(json.toString())
 
-        // Clear photos
-        if (current.photoThumbnails.isNotEmpty()) {
+        // Tell phone to clear its photos too
+        if (thumbnails.isNotEmpty()) {
             phoneConnection.sendToPhone("""{"type":"remove_photo","all":true}""")
         }
         hudState.value = current.copy(
@@ -574,8 +577,6 @@ class HudActivity : ComponentActivity() {
             scrollPosition = messages.size - 1,
             scrollTrigger = current.scrollTrigger + 1
         )
-
-        Log.d(GlassesApp.TAG, "Submitted input: ${text.take(50)}")
     }
 
     // ============== Session Picker Gestures ==============
@@ -821,42 +822,66 @@ class HudActivity : ComponentActivity() {
                     val role = msg.optString("role", "assistant")
                     val content = unwrapContent(msg.optString("content", ""))
 
-                    val current = hudState.value
+                    var current = hudState.value
                     val messages = current.messages.toMutableList()
 
-                    // Skip user echoes that were already displayed optimistically
                     if (role == "user") {
-                        val lastUserMsg = messages.lastOrNull { it.role == "user" }
-                        if (lastUserMsg != null && lastUserMsg.content == content) {
-                            Log.d(GlassesApp.TAG, "Skipping user echo (already displayed): ${content.take(50)}")
+                        // Check if submitInput already added this message optimistically
+                        val existingLocal = messages.indexOfLast { it.role == "user" && it.content == content }
+                        if (existingLocal >= 0) {
+                            Log.d(GlassesApp.TAG, "User echo already displayed, skipping: ${content.take(50)}")
+                            // Clear any lingering photos (belt-and-suspenders)
+                            if (current.photoThumbnails.isNotEmpty()) {
+                                hudState.value = current.copy(
+                                    photoThumbnails = emptyList(),
+                                    selectedPhotoIndex = 0
+                                )
+                            }
                             return
                         }
-                    }
-
-                    // Check if we already have a streaming message with this id
-                    val existingIndex = messages.indexOfFirst { it.id == id }
-
-                    val displayMsg = DisplayMessage(
-                        id = id,
-                        role = role,
-                        content = content,
-                        isStreaming = false
-                    )
-
-                    if (existingIndex >= 0) {
-                        messages[existingIndex] = displayMsg
-                    } else {
+                        // Phone-originated user message — grab photos from strip if any
+                        val thumbnails = current.photoThumbnails.toList()
+                        val displayMsg = DisplayMessage(
+                            id = id,
+                            role = role,
+                            content = content,
+                            isStreaming = false,
+                            thumbnails = thumbnails
+                        )
                         messages.add(displayMsg)
+                        hudState.value = current.copy(
+                            messages = messages,
+                            agentState = AgentState.IDLE,
+                            photoThumbnails = emptyList(),
+                            selectedPhotoIndex = 0,
+                            scrollPosition = messages.size - 1,
+                            scrollTrigger = current.scrollTrigger + 1
+                        )
+                        Log.d(GlassesApp.TAG, "User message (phone): ${content.take(50)}, photos=${thumbnails.size}")
+                    } else {
+                        // Assistant message
+                        val existingIndex = messages.indexOfFirst { it.id == id }
+                        val displayMsg = DisplayMessage(
+                            id = id,
+                            role = role,
+                            content = content,
+                            isStreaming = false
+                        )
+
+                        if (existingIndex >= 0) {
+                            messages[existingIndex] = displayMsg
+                        } else {
+                            messages.add(displayMsg)
+                        }
+
+                        hudState.value = current.copy(
+                            messages = messages,
+                            agentState = AgentState.IDLE,
+                            scrollPosition = messages.size - 1,
+                            scrollTrigger = current.scrollTrigger + 1
+                        )
+                        Log.d(GlassesApp.TAG, "Assistant message: ${content.take(50)}")
                     }
-
-                    hudState.value = current.copy(
-                        messages = messages,
-                        agentState = AgentState.IDLE,
-                        scrollPosition = messages.size - 1,
-                        scrollTrigger = current.scrollTrigger + 1
-                    )
-
-                    Log.d(GlassesApp.TAG, "Chat message ($role): ${content.take(50)}")
                 }
 
                 "chat_history" -> {

@@ -491,7 +491,8 @@ class HudActivity : ComponentActivity() {
             if (DEBUG_MODE) {
                 cameraCapture.clearPhoto()
             } else {
-                // Just clear local HUD state — phone clears pendingPhotoBase64 when processing user_input
+                // Tell phone to clear its pending photo, then clear local HUD state
+                phoneConnection.sendToPhone("""{"type":"remove_photo"}""")
                 hudState.value = hudState.value.copy(photoBase64 = null, photoThumbnail = null)
             }
         }

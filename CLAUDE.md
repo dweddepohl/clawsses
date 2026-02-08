@@ -77,6 +77,15 @@ Defined in `shared/.../Protocol.kt`. JSON messages over CXR SDK (production) or 
 
 Voice results auto-submit immediately (no manual text entry).
 
+## Rokid SDK Documentation
+
+Full scraped SDK docs are available locally for reference:
+
+- **CXR-M SDK (Mobile):** `docs/rokid-sdk/` — Bluetooth/WiFi connection, device controls, camera/audio, AI scene, teleprompter, translation, custom views
+- **CXR-S SDK (Glasses):** `docs/rokid-sdk-glasses/` — On-device development, message subscription/sending, Caps data structure
+
+Each directory has a `README.md` with an index. These docs were scraped from Rokid's custom documentation portal.
+
 ## SDK & Credentials
 
 Rokid CXR SDK handles Bluetooth: `com.rokid.cxr:client-m:1.0.8` (phone), `com.rokid.cxr:cxr-service-bridge:1.0` (glasses). Maven repo: `https://maven.rokid.com/repository/maven-public/`.

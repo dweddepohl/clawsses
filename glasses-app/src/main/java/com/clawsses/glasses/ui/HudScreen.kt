@@ -72,6 +72,7 @@ enum class HudPosition(val label: String) {
  */
 enum class ChatFocusArea {
     CONTENT,  // Chat messages (scrollable)
+    PHOTOS,   // Photo strip (between content and menu)
     MENU      // Bottom menu bar
 }
 
@@ -89,7 +90,6 @@ enum class AgentState {
  */
 enum class MenuBarItem(val icon: String, val label: String) {
     PHOTO("\uD83D\uDCF7", "Photo"),
-    REMOVE_PHOTO("\u2716", "Rm Photo"),
     SESSION("\u25CE", "Sess"),
     SIZE("\u2588", "Size"),  // Icon overridden dynamically based on next HudPosition
     MORE("\u2026", "More"),
@@ -112,7 +112,8 @@ data class DisplayMessage(
     val id: String,
     val role: String,  // "user" or "assistant"
     val content: String,
-    val isStreaming: Boolean = false
+    val isStreaming: Boolean = false,
+    val thumbnails: List<Bitmap> = emptyList()
 )
 
 /**
@@ -143,8 +144,8 @@ data class ChatHudState(
     val scrollTrigger: Int = 0,
     val isScrolledToEnd: Boolean = false,
     val inputText: String = "",
-    val photoBase64: String? = null,
-    val photoThumbnail: Bitmap? = null,
+    val photoThumbnails: List<Bitmap> = emptyList(),
+    val selectedPhotoIndex: Int = 0,
     val isConnected: Boolean = false,
     val agentState: AgentState = AgentState.IDLE,
     val menuBarIndex: Int = 0,
@@ -269,11 +270,13 @@ fun HudScreen(
         }
     }
 
-    // Focus brightness — only CONTENT and MENU can be focused
+    // Focus brightness
     val contentFocused = state.focusedArea == ChatFocusArea.CONTENT
+    val photosFocused = state.focusedArea == ChatFocusArea.PHOTOS
     val menuFocused = state.focusedArea == ChatFocusArea.MENU
 
     val contentAlpha = focusBrightness(contentFocused)
+    val photosAlpha = focusBrightness(photosFocused)
     val menuAlpha = focusBrightness(menuFocused)
 
     // HUD position offset
@@ -354,15 +357,18 @@ fun HudScreen(
                     modifier = Modifier.weight(1f)
                 )
 
-                // PHOTO INDICATOR
+                // PHOTO STRIP
                 AnimatedVisibility(
-                    visible = state.photoBase64 != null || state.photoThumbnail != null,
+                    visible = state.photoThumbnails.isNotEmpty(),
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
-                    PhotoIndicatorStrip(
-                        thumbnail = state.photoThumbnail,
-                        fontFamily = monoFontFamily
+                    PhotoStrip(
+                        thumbnails = state.photoThumbnails,
+                        selectedIndex = state.selectedPhotoIndex,
+                        isFocused = photosFocused,
+                        fontFamily = monoFontFamily,
+                        alpha = photosAlpha
                     )
                 }
 
@@ -373,7 +379,6 @@ fun HudScreen(
                     selectedIndex = state.menuBarIndex,
                     isFocused = menuFocused,
                     hudPosition = state.hudPosition,
-                    hasPhoto = state.photoBase64 != null,
                     fontFamily = monoFontFamily,
                     alpha = menuAlpha
                 )
@@ -486,6 +491,7 @@ private fun TopBar(
         ) {
             val (modeLabel, modeColor) = when (focusedArea) {
                 ChatFocusArea.CONTENT -> "SCROLL" to HudColors.cyan
+                ChatFocusArea.PHOTOS -> "PHOTO" to HudColors.green
                 ChatFocusArea.MENU -> "MENU" to HudColors.green
             }
             Text(
@@ -610,25 +616,31 @@ private fun ChatMessageItem(
                 }
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-            val displayText = if (message.content.isEmpty() && isStreaming) {
-                if (cursorVisible) "\u2588" else " "
-            } else if (isStreaming && cursorVisible) {
-                "${message.content}\u2588"
-            } else {
-                message.content
-            }
+            Column {
+                if (message.thumbnails.isNotEmpty()) {
+                    PhotoThumbnailRow(thumbnails = message.thumbnails)
+                }
 
-            Text(
-                text = displayText,
-                color = if (isUser) HudColors.primaryText else HudColors.green,
-                fontSize = fontSize,
-                fontFamily = fontFamily,
-                lineHeight = fontSize,
-                letterSpacing = 0.sp,
-                textAlign = if (isUser) TextAlign.End else TextAlign.Start,
-                softWrap = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+                val displayText = if (message.content.isEmpty() && isStreaming) {
+                    if (cursorVisible) "\u2588" else " "
+                } else if (isStreaming && cursorVisible) {
+                    "${message.content}\u2588"
+                } else {
+                    message.content
+                }
+
+                Text(
+                    text = displayText,
+                    color = if (isUser) HudColors.primaryText else HudColors.green,
+                    fontSize = fontSize,
+                    fontFamily = fontFamily,
+                    lineHeight = fontSize,
+                    letterSpacing = 0.sp,
+                    textAlign = if (isUser) TextAlign.End else TextAlign.Start,
+                    softWrap = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }
@@ -662,61 +674,88 @@ private fun ThinkingIndicator(
 }
 
 // ============================================================================
-// PHOTO INDICATOR STRIP
+// PHOTO STRIP
 // ============================================================================
 
+private val greenColorMatrix = ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix(floatArrayOf(
+    0f, 0f, 0f, 0f, 0f,
+    0.3f, 0.59f, 0.11f, 0f, 0f,
+    0f, 0f, 0f, 0f, 0f,
+    0f, 0f, 0f, 1f, 0f
+)))
+
 @Composable
-private fun PhotoIndicatorStrip(
-    thumbnail: Bitmap?,
+private fun PhotoStrip(
+    thumbnails: List<Bitmap>,
+    selectedIndex: Int,
+    isFocused: Boolean,
     fontFamily: FontFamily,
+    alpha: Float,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .alpha(alpha)
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        if (thumbnail != null) {
+        thumbnails.forEachIndexed { index, bitmap ->
+            val isSelected = index == selectedIndex && isFocused
+            Box {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Photo ${index + 1}",
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 27.dp)
+                        .border(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) HudColors.green else HudColors.dimText,
+                            shape = RoundedCornerShape(2.dp)
+                        ),
+                    contentScale = ContentScale.Crop,
+                    colorFilter = greenColorMatrix
+                )
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 36.dp, height = 27.dp)
+                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(2.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "\u2715",
+                            color = HudColors.green,
+                            fontSize = 12.sp,
+                            fontFamily = fontFamily,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhotoThumbnailRow(
+    thumbnails: List<Bitmap>,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.padding(bottom = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        thumbnails.forEach { bitmap ->
             Image(
-                bitmap = thumbnail.asImageBitmap(),
-                contentDescription = "Photo preview",
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
                 modifier = Modifier
-                    .size(width = 36.dp, height = 27.dp)
-                    .border(1.dp, HudColors.green, RoundedCornerShape(2.dp)),
+                    .size(width = 24.dp, height = 18.dp)
+                    .border(1.dp, HudColors.green.copy(alpha = 0.5f), RoundedCornerShape(1.dp)),
                 contentScale = ContentScale.Crop,
-                // Map grayscale luminance to green: zero out R/B, keep G from luminance
-                colorFilter = ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix(floatArrayOf(
-                    0f, 0f, 0f, 0f, 0f,   // R = 0
-                    0.3f, 0.59f, 0.11f, 0f, 0f, // G = luminance
-                    0f, 0f, 0f, 0f, 0f,   // B = 0
-                    0f, 0f, 0f, 1f, 0f    // A = unchanged
-                )))
-            )
-            Text(
-                text = "[PHOTO]",
-                color = HudColors.green,
-                fontSize = 10.sp,
-                fontFamily = fontFamily,
-                fontWeight = FontWeight.Bold
-            )
-        } else {
-            // Capturing in progress — pulsing text
-            val infiniteTransition = rememberInfiniteTransition(label = "capture")
-            val alpha by infiniteTransition.animateFloat(
-                initialValue = 0.3f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(animation = tween(400)),
-                label = "capturePulse"
-            )
-            Text(
-                text = "CAPTURING...",
-                color = HudColors.cyan,
-                fontSize = 10.sp,
-                fontFamily = fontFamily,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.alpha(alpha)
+                colorFilter = greenColorMatrix
             )
         }
     }
@@ -731,19 +770,12 @@ private fun ChatMenuBar(
     selectedIndex: Int,
     isFocused: Boolean,
     hudPosition: HudPosition,
-    hasPhoto: Boolean = false,
     fontFamily: FontFamily,
     alpha: Float,
     modifier: Modifier = Modifier
 ) {
     val commandFontSize = 8.sp  // Fixed size — FONT only affects content
-    val items = MenuBarItem.entries.filter { item ->
-        when (item) {
-            MenuBarItem.PHOTO -> !hasPhoto
-            MenuBarItem.REMOVE_PHOTO -> hasPhoto
-            else -> true
-        }
-    }
+    val items = MenuBarItem.entries
     val scrollState = rememberScrollState()
 
     Row(

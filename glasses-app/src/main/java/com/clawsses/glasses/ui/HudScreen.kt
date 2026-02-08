@@ -304,19 +304,6 @@ fun HudScreen(
             }
         }
 
-        // Voice input overlay
-        AnimatedVisibility(
-            visible = state.voiceState !is VoiceInputState.Idle,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            VoiceInputOverlay(
-                voiceState = state.voiceState,
-                voiceText = state.voiceText,
-                fontFamily = monoFontFamily
-            )
-        }
-
         // Session picker overlay
         AnimatedVisibility(
             visible = state.showSessionPicker,
@@ -680,95 +667,6 @@ private fun ChatMenuBar(
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                     )
                 }
-            }
-        }
-    }
-}
-
-// ============================================================================
-// VOICE INPUT OVERLAY
-// ============================================================================
-
-@Composable
-private fun VoiceInputOverlay(
-    voiceState: VoiceInputState,
-    voiceText: String,
-    fontFamily: FontFamily,
-    modifier: Modifier = Modifier
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "voice")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 800)),
-        label = "pulse"
-    )
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            when (voiceState) {
-                is VoiceInputState.Listening -> {
-                    Text(
-                        text = "\uD83C\uDF99",
-                        fontSize = 48.sp,
-                        modifier = Modifier.graphicsLayer { this.alpha = alpha }
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Listening...",
-                        color = HudColors.cyan,
-                        fontSize = 18.sp,
-                        fontFamily = fontFamily,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                is VoiceInputState.Recognizing -> {
-                    Text(
-                        text = "\uD83C\uDF99",
-                        fontSize = 32.sp,
-                        color = HudColors.green
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = voiceText.ifEmpty { "..." },
-                        color = HudColors.green,
-                        fontSize = 20.sp,
-                        fontFamily = fontFamily,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
-                }
-                is VoiceInputState.Error -> {
-                    Text(text = "\u26A0", fontSize = 32.sp)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = voiceState.message,
-                        color = HudColors.error,
-                        fontSize = 16.sp,
-                        fontFamily = fontFamily,
-                        textAlign = TextAlign.Center
-                    )
-                }
-                is VoiceInputState.Idle -> {}
-            }
-
-            if (voiceState !is VoiceInputState.Idle) {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = "Tap to cancel",
-                    color = HudColors.dimText,
-                    fontSize = 12.sp,
-                    fontFamily = fontFamily
-                )
             }
         }
     }

@@ -542,9 +542,15 @@ object RokidSdkManager {
      */
     fun deinitWifiP2P() {
         try {
+            val wasConnected = isWifiP2PConnectedState
             cxrApi?.deinitWifiP2P()
             isWifiP2PConnectedState = false
             Log.d(TAG, "WiFi P2P deinitialized")
+            // SDK doesn't fire wifiP2PCallback.onDisconnected() on programmatic teardown,
+            // so notify listeners explicitly to keep UI state in sync.
+            if (wasConnected) {
+                onWifiP2PDisconnected?.invoke()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error deinitializing WiFi P2P", e)
         }

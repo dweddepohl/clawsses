@@ -327,6 +327,36 @@ class ApkInstaller(private val context: Context) {
 
         Log.i(TAG, "SDK APK installation successful!")
         _installState.value = InstallState.Success("Glasses app installed successfully via SDK!")
+
+        // Disconnect WiFi P2P to save battery — Bluetooth remains for communication.
+        // Must switch to Main thread since SDK methods require it.
+        withContext(Dispatchers.Main) {
+            disconnectWifiP2PAfterInstall()
+        }
+    }
+
+    /**
+     * Disconnect WiFi P2P after a successful SDK install to save battery.
+     * Only disconnects if Bluetooth is still active (so communication isn't lost).
+     * Must be called on the Main thread (SDK requirement).
+     */
+    private fun disconnectWifiP2PAfterInstall() {
+        Log.i(TAG, "Post-install: checking Bluetooth before disconnecting WiFi P2P...")
+
+        if (!RokidSdkManager.isConnected()) {
+            Log.w(TAG, "Post-install: Bluetooth not connected — keeping WiFi P2P active as fallback")
+            return
+        }
+        Log.i(TAG, "Post-install: Bluetooth confirmed active")
+
+        if (!RokidSdkManager.isWifiP2PConnected()) {
+            Log.i(TAG, "Post-install: WiFi P2P already disconnected — nothing to do")
+            return
+        }
+
+        Log.i(TAG, "Post-install: disconnecting WiFi P2P to save battery...")
+        RokidSdkManager.deinitWifiP2P()
+        Log.i(TAG, "Post-install: WiFi P2P disconnected successfully")
     }
 
     /**

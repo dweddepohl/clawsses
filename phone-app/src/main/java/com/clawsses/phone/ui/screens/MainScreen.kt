@@ -51,6 +51,7 @@ import com.clawsses.phone.glasses.RokidSdkManager
 import com.clawsses.phone.openclaw.DeviceIdentity
 import com.clawsses.phone.openclaw.OpenClawClient
 import com.clawsses.phone.voice.VoiceCommandHandler
+import com.clawsses.phone.voice.VoiceLanguageManager
 import com.clawsses.shared.ChatMessage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,6 +65,7 @@ fun MainScreen() {
     val deviceIdentity = remember { DeviceIdentity(context) }
     val openClawClient = remember { OpenClawClient(deviceIdentity) }
     val voiceHandler = remember { VoiceCommandHandler(context) }
+    val voiceLanguageManager = remember { VoiceLanguageManager(context) }
     val apkInstaller = remember { ApkInstaller(context) }
 
     // State
@@ -72,6 +74,7 @@ fun MainScreen() {
     val chatMessages by openClawClient.chatMessages.collectAsState()
     val isListening by voiceHandler.isListening.collectAsState()
     val installState by apkInstaller.installState.collectAsState()
+    val selectedVoiceLanguage by voiceLanguageManager.selectedLanguage.collectAsState()
 
     // Persist OpenClaw settings in SharedPreferences
     val prefs = remember { context.getSharedPreferences("clawsses", android.content.Context.MODE_PRIVATE) }
@@ -88,9 +91,10 @@ fun MainScreen() {
     var showSettings by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    // Initialize voice handler and wire partial result callback
+    // Initialize voice handler and query available languages
     LaunchedEffect(Unit) {
         voiceHandler.initialize()
+        voiceLanguageManager.queryAvailableLanguages()
         voiceHandler.onPartialResult = { partialText ->
             RokidSdkManager.sendAsrContent(partialText)
             val stateMsg = org.json.JSONObject().apply {
@@ -154,7 +158,7 @@ fun MainScreen() {
             mainHandler.postDelayed({
                 android.util.Log.i("MainScreen", ">>> Starting voice recognition on main thread")
                 RokidSdkManager.setCommunicationDevice()
-                startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = false)
+                startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = false, languageTag = voiceLanguageManager.getActiveLanguageTag())
             }, 300)
         }
         glassesManager.onAiExit = {
@@ -180,7 +184,7 @@ fun MainScreen() {
                     "start_voice" -> {
                         android.util.Log.d("MainScreen", "Glasses requested voice recognition start")
                         com.clawsses.phone.glasses.RokidSdkManager.setCommunicationDevice()
-                        voiceHandler.startListening { result ->
+                        voiceHandler.startListening(languageTag = voiceLanguageManager.getActiveLanguageTag()) { result ->
                             com.clawsses.phone.glasses.RokidSdkManager.clearCommunicationDevice()
                             when (result) {
                                 is VoiceCommandHandler.VoiceResult.Text -> {
@@ -302,7 +306,7 @@ fun MainScreen() {
                         if (isListening) {
                             voiceHandler.stopListening()
                         } else {
-                            voiceHandler.startListening { result ->
+                            voiceHandler.startListening(languageTag = voiceLanguageManager.getActiveLanguageTag()) { result ->
                                 when (result) {
                                     is VoiceCommandHandler.VoiceResult.Text -> {
                                         openClawClient.sendMessage(result.text)
@@ -422,6 +426,7 @@ fun MainScreen() {
             onOpenGlassesApp = { apkInstaller.openGlassesApp() },
             glassesManager = glassesManager,
             glassesState = glassesState,
+            voiceLanguageManager = voiceLanguageManager,
         )
     }
 }
@@ -595,11 +600,15 @@ fun SettingsDialog(
     onOpenGlassesApp: () -> Unit,
     glassesManager: GlassesConnectionManager? = null,
     glassesState: GlassesConnectionManager.ConnectionState? = null,
+    voiceLanguageManager: VoiceLanguageManager? = null,
 ) {
     var showDeviceList by remember { mutableStateOf(false) }
     val discoveredDevices = glassesManager?.discoveredDevices?.collectAsState()?.value ?: emptyList()
     val wifiP2PConnected = glassesManager?.wifiP2PConnected?.collectAsState()?.value ?: false
     val sdkConnected = glassesState is GlassesConnectionManager.ConnectionState.Connected && !debugModeEnabled
+    val availableLanguages = voiceLanguageManager?.availableLanguages?.collectAsState()?.value ?: emptyList()
+    val selectedLanguage = voiceLanguageManager?.selectedLanguage?.collectAsState()?.value ?: ""
+    var showLanguagePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = {
@@ -678,6 +687,81 @@ fun SettingsDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
                         )
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    // ============== Voice Language Section ==============
+                    Text("Voice Language", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(8.dp))
+
+                    val currentLangDisplay = availableLanguages
+                        .firstOrNull { it.tag == selectedLanguage }
+                        ?.displayName ?: selectedLanguage.ifEmpty { "Default" }
+
+                    OutlinedButton(
+                        onClick = { showLanguagePicker = !showLanguagePicker },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(currentLangDisplay, modifier = Modifier.weight(1f))
+                        Icon(
+                            if (showLanguagePicker) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    if (showLanguagePicker) {
+                        Spacer(Modifier.height(4.dp))
+                        if (availableLanguages.isEmpty()) {
+                            Text(
+                                "No languages available",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        } else {
+                            Column {
+                                availableLanguages.forEach { lang ->
+                                    val isSelected = lang.tag == selectedLanguage
+                                    TextButton(
+                                        onClick = {
+                                            voiceLanguageManager?.selectLanguage(lang.tag)
+                                            showLanguagePicker = false
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                if (isSelected) Icons.Default.RadioButtonChecked
+                                                else Icons.Default.RadioButtonUnchecked,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                                tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    lang.displayName,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                                            else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    lang.tag,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color.Gray
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Spacer(Modifier.height(24.dp))
@@ -979,9 +1063,10 @@ private fun startVoiceRecognition(
     openClawClient: OpenClawClient,
     glassesManager: GlassesConnectionManager,
     mainHandler: android.os.Handler,
-    isRetry: Boolean
+    isRetry: Boolean,
+    languageTag: String? = null
 ) {
-    voiceHandler.startListening { result ->
+    voiceHandler.startListening(languageTag = languageTag) { result ->
         android.util.Log.i("MainScreen", ">>> Voice result received (retry=$isRetry): $result")
         when (result) {
             is VoiceCommandHandler.VoiceResult.Text -> {
@@ -1022,7 +1107,7 @@ private fun startVoiceRecognition(
                     android.util.Log.w("MainScreen", "Voice error '${result.message}', retrying with phone mic...")
                     RokidSdkManager.clearCommunicationDevice()
                     mainHandler.postDelayed({
-                        startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = true)
+                        startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = true, languageTag = languageTag)
                     }, 200)
                 } else {
                     android.util.Log.e("MainScreen", "AI voice error (after retry): ${result.message}")

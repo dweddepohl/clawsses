@@ -109,7 +109,10 @@ class VoiceCommandHandler(private val context: Context) {
         speechRecognizer?.setRecognitionListener(createRecognitionListener())
     }
 
-    fun startListening(onResult: (VoiceResult) -> Unit) {
+    /**
+     * @param languageTag BCP-47 language tag (e.g. "nl-NL", "en-US"). When null, uses the device default.
+     */
+    fun startListening(languageTag: String? = null, onResult: (VoiceResult) -> Unit) {
         this.onResult = onResult
         _isListening.value = true
 
@@ -128,6 +131,11 @@ class VoiceCommandHandler(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            if (languageTag != null) {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
+                Log.i(TAG, "Voice recognition language: $languageTag")
+            }
         }
 
         try {

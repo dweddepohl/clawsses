@@ -304,8 +304,6 @@ fun MainScreen() {
                         RokidSdkManager.onPhotoResult = { status, photoBytes ->
                             // Post to main thread to avoid calling back into CXR SDK from its callback thread
                             mainHandler.post {
-                                // Exit the AI camera scene to restore the CXR message bridge
-                                RokidSdkManager.sendExitEvent()
                                 if (status == com.rokid.cxr.client.utils.ValueUtil.CxrStatus.RESPONSE_SUCCEED && photoBytes != null && photoBytes.isNotEmpty()) {
                                     val base64 = android.util.Base64.encodeToString(photoBytes, android.util.Base64.NO_WRAP)
                                     pendingPhotoBase64 = base64
@@ -329,14 +327,10 @@ fun MainScreen() {
                                 RokidSdkManager.onPhotoResult = null
                             }
                         }
-                        // AI scene photo capture (per SDK docs):
-                        // 1. openGlassCamera enters AI camera scene on glasses
-                        // 2. takeGlassPhoto captures and returns WebP bytes via PhotoResultCallback
-                        // 3. sendExitEvent (in callback above) exits the scene
-                        val openStatus = RokidSdkManager.openGlassCamera(1280, 720, 80)
-                        android.util.Log.d("MainScreen", "openGlassCamera: $openStatus")
-                        val takeStatus = RokidSdkManager.takeGlassPhoto(1280, 720, 80)
-                        android.util.Log.d("MainScreen", "takeGlassPhoto: $takeStatus")
+                        // Use takeGlassPhotoGlobal for one-shot capture — avoids openGlassCamera
+                        // which puts glasses in camera mode and blocks the CXR message bridge
+                        val takeStatus = RokidSdkManager.takeGlassPhotoGlobal(1280, 720, 80)
+                        android.util.Log.d("MainScreen", "takeGlassPhotoGlobal: $takeStatus")
                     }
                     "remove_photo" -> {
                         android.util.Log.d("MainScreen", "Glasses cleared photo")

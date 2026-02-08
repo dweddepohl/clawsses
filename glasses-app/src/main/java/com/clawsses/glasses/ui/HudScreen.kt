@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -203,7 +204,24 @@ fun HudScreen(
     LaunchedEffect(state.scrollPosition, state.scrollTrigger) {
         val totalItems = state.messages.size
         if (totalItems > 0 && state.scrollPosition < totalItems) {
-            listState.animateScrollToItem(state.scrollPosition)
+            val currentIndex = listState.firstVisibleItemIndex
+            if (state.scrollPosition < currentIndex) {
+                // Scrolling up: use pixel-based animation for smoothness
+                // (animateScrollToItem can jump when target items aren't composed yet)
+                val viewportHeight = listState.layoutInfo.viewportSize.height
+                val itemsToScroll = currentIndex - state.scrollPosition
+                // Estimate scroll distance from average visible item height
+                val visibleItems = listState.layoutInfo.visibleItemsInfo
+                val avgItemHeight = if (visibleItems.isNotEmpty()) {
+                    visibleItems.sumOf { it.size } / visibleItems.size.toFloat()
+                } else {
+                    viewportHeight / 5f
+                }
+                val scrollDistance = -(itemsToScroll * avgItemHeight)
+                listState.animateScrollBy(scrollDistance)
+            } else {
+                listState.animateScrollToItem(state.scrollPosition)
+            }
         }
     }
 

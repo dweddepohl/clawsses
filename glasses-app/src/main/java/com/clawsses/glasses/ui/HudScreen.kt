@@ -88,9 +88,10 @@ enum class AgentState {
  * Menu bar items
  */
 enum class MenuBarItem(val icon: String, val label: String) {
+    PHOTO("\uD83D\uDCF7", "Photo"),
+    REMOVE_PHOTO("\u2716", "Rm Photo"),
     SESSION("\u25CE", "Sess"),
     SIZE("\u2588", "Size"),  // Icon overridden dynamically based on next HudPosition
-    FONT("Aa", "Font"),
     MORE("\u2026", "More"),
     EXIT("\u2715", "Exit")
 }
@@ -99,9 +100,8 @@ enum class MenuBarItem(val icon: String, val label: String) {
  * Items available in the MORE menu
  */
 enum class MoreMenuItem(val icon: String, val label: String) {
+    FONT("Aa", "Font"),
     SLASH("/", "Slash Cmds"),
-    PHOTO("\uD83D\uDCF7", "Photo"),
-    REMOVE_PHOTO("\u2716", "Rm Photo")
 }
 
 /**
@@ -373,6 +373,7 @@ fun HudScreen(
                     selectedIndex = state.menuBarIndex,
                     isFocused = menuFocused,
                     hudPosition = state.hudPosition,
+                    hasPhoto = state.photoBase64 != null,
                     fontFamily = monoFontFamily,
                     alpha = menuAlpha
                 )
@@ -401,7 +402,6 @@ fun HudScreen(
         ) {
             MoreMenuOverlay(
                 selectedIndex = state.selectedMoreIndex,
-                hasPhoto = state.photoBase64 != null,
                 fontFamily = monoFontFamily
             )
         }
@@ -725,12 +725,19 @@ private fun ChatMenuBar(
     selectedIndex: Int,
     isFocused: Boolean,
     hudPosition: HudPosition,
+    hasPhoto: Boolean = false,
     fontFamily: FontFamily,
     alpha: Float,
     modifier: Modifier = Modifier
 ) {
     val commandFontSize = 8.sp  // Fixed size — FONT only affects content
-    val items = MenuBarItem.entries
+    val items = MenuBarItem.entries.filter { item ->
+        when (item) {
+            MenuBarItem.PHOTO -> !hasPhoto
+            MenuBarItem.REMOVE_PHOTO -> hasPhoto
+            else -> true
+        }
+    }
     val scrollState = rememberScrollState()
 
     Row(
@@ -911,17 +918,10 @@ private fun SessionPickerOverlay(
 @Composable
 private fun MoreMenuOverlay(
     selectedIndex: Int,
-    hasPhoto: Boolean = false,
     fontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
-    val items = MoreMenuItem.entries.filter { item ->
-        when (item) {
-            MoreMenuItem.PHOTO -> !hasPhoto
-            MoreMenuItem.REMOVE_PHOTO -> hasPhoto
-            else -> true
-        }
-    }
+    val items = MoreMenuItem.entries
 
     Box(
         modifier = modifier

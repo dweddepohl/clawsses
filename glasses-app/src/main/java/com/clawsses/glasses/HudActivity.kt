@@ -393,7 +393,13 @@ class HudActivity : ComponentActivity() {
     // MENU area gestures
     private fun handleMenuGesture(gesture: Gesture) {
         val current = hudState.value
-        val items = MenuBarItem.entries
+        val items = MenuBarItem.entries.filter { item ->
+            when (item) {
+                MenuBarItem.PHOTO -> current.photoBase64 == null
+                MenuBarItem.REMOVE_PHOTO -> current.photoBase64 != null
+                else -> true
+            }
+        }
 
         when (gesture) {
             Gesture.SWIPE_FORWARD -> {
@@ -427,31 +433,37 @@ class HudActivity : ComponentActivity() {
         val current = hudState.value
 
         when (item) {
+            MenuBarItem.PHOTO -> {
+                if (DEBUG_MODE) {
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        cameraCapture.capture()
+                    } else {
+                        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
+                    }
+                } else {
+                    phoneConnection.sendToPhone("""{"type":"take_photo"}""")
+                    Log.d(GlassesApp.TAG, "Requested photo capture from phone")
+                }
+            }
+            MenuBarItem.REMOVE_PHOTO -> {
+                if (DEBUG_MODE) {
+                    cameraCapture.clearPhoto()
+                } else {
+                    phoneConnection.sendToPhone("""{"type":"remove_photo"}""")
+                    hudState.value = current.copy(photoBase64 = null, photoThumbnail = null)
+                }
+            }
             MenuBarItem.SESSION -> {
-                // Request session list from phone
                 requestSessionList()
             }
             MenuBarItem.SIZE -> {
-                // Cycle HUD position: FULL → BOTTOM_HALF → TOP_HALF → FULL
                 val nextPosition = when (current.hudPosition) {
                     HudPosition.FULL -> HudPosition.BOTTOM_HALF
                     HudPosition.BOTTOM_HALF -> HudPosition.TOP_HALF
                     HudPosition.TOP_HALF -> HudPosition.FULL
                 }
-                // Bump scrollTrigger so the scroll re-evaluates with the new viewport height
                 hudState.value = current.copy(
                     hudPosition = nextPosition,
-                    scrollTrigger = current.scrollTrigger + 1
-                )
-            }
-            MenuBarItem.FONT -> {
-                // Cycle display size
-                val sizes = HudDisplaySize.entries
-                val currentIndex = sizes.indexOf(current.displaySize)
-                val nextSize = sizes[(currentIndex + 1) % sizes.size]
-                // Bump scrollTrigger so the scroll re-evaluates with the new font size
-                hudState.value = current.copy(
-                    displaySize = nextSize,
                     scrollTrigger = current.scrollTrigger + 1
                 )
             }
@@ -534,13 +546,7 @@ class HudActivity : ComponentActivity() {
 
     private fun handleMoreMenuGesture(gesture: Gesture) {
         val current = hudState.value
-        val items = MoreMenuItem.entries.filter { item ->
-            when (item) {
-                MoreMenuItem.REMOVE_PHOTO -> current.photoBase64 != null
-                MoreMenuItem.PHOTO -> current.photoBase64 == null
-                else -> true
-            }
-        }
+        val items = MoreMenuItem.entries
         val itemCount = items.size
 
         when (gesture) {
@@ -575,35 +581,21 @@ class HudActivity : ComponentActivity() {
         val current = hudState.value
 
         when (item) {
+            MoreMenuItem.FONT -> {
+                val sizes = HudDisplaySize.entries
+                val currentIndex = sizes.indexOf(current.displaySize)
+                val nextSize = sizes[(currentIndex + 1) % sizes.size]
+                hudState.value = current.copy(
+                    displaySize = nextSize,
+                    scrollTrigger = current.scrollTrigger + 1
+                )
+            }
             MoreMenuItem.SLASH -> {
-                // Open slash command submenu
                 hudState.value = current.copy(
                     showMoreMenu = false,
                     showSlashMenu = true,
                     selectedSlashIndex = 0
                 )
-            }
-            MoreMenuItem.PHOTO -> {
-                if (DEBUG_MODE) {
-                    // Debug: capture locally with Camera2
-                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                        cameraCapture.capture()
-                    } else {
-                        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
-                    }
-                } else {
-                    // Production: request phone to capture via CXR SDK
-                    phoneConnection.sendToPhone("""{"type":"take_photo"}""")
-                    Log.d(GlassesApp.TAG, "Requested photo capture from phone")
-                }
-            }
-            MoreMenuItem.REMOVE_PHOTO -> {
-                if (DEBUG_MODE) {
-                    cameraCapture.clearPhoto()
-                } else {
-                    phoneConnection.sendToPhone("""{"type":"remove_photo"}""")
-                    hudState.value = current.copy(photoBase64 = null, photoThumbnail = null)
-                }
             }
         }
     }

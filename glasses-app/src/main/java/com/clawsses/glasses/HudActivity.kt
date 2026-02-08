@@ -811,9 +811,12 @@ class HudActivity : ComponentActivity() {
                     val sessionKey = msg.optString("sessionId", "")
 
                     val current = hudState.value
+                    val newSessionKey = sessionKey.ifEmpty { current.currentSessionKey }
+                    val sessionChanged = newSessionKey != current.currentSessionKey
                     hudState.value = current.copy(
                         isConnected = connected,
-                        currentSessionKey = sessionKey.ifEmpty { current.currentSessionKey }
+                        currentSessionKey = newSessionKey,
+                        showSessionPicker = if (sessionChanged) false else current.showSessionPicker
                     )
 
                     Log.d(GlassesApp.TAG, "Connection update: connected=$connected, session=$sessionKey")

@@ -76,7 +76,6 @@ class HudActivity : ComponentActivity() {
     private lateinit var cameraCapture: CameraCapture
 
     // Thumbnails to attach to the next user message echo from the server
-    private var pendingMessageThumbnails: List<Bitmap> = emptyList()
 
     // Debug keyboard input mode
     private var isCapturingKeyboardInput = false
@@ -544,10 +543,16 @@ class HudActivity : ComponentActivity() {
         val text = current.inputText.trim()
         if (text.isEmpty()) return
 
-        // Save thumbnails for display in the user message
-        if (current.photoThumbnails.isNotEmpty()) {
-            pendingMessageThumbnails = current.photoThumbnails.toList()
-        }
+        // Add user message to display immediately (optimistic update)
+        val userMsg = DisplayMessage(
+            id = "local-${System.currentTimeMillis()}",
+            role = "user",
+            content = text,
+            isStreaming = false,
+            thumbnails = current.photoThumbnails.toList()
+        )
+        val messages = current.messages.toMutableList()
+        messages.add(userMsg)
 
         // Send user_input to phone
         val json = JSONObject().apply {
@@ -560,11 +565,14 @@ class HudActivity : ComponentActivity() {
         if (current.photoThumbnails.isNotEmpty()) {
             phoneConnection.sendToPhone("""{"type":"remove_photo","all":true}""")
         }
-        hudState.value = hudState.value.copy(
+        hudState.value = current.copy(
+            messages = messages,
             inputText = "",
             photoThumbnails = emptyList(),
             selectedPhotoIndex = 0,
-            focusedArea = ChatFocusArea.CONTENT
+            focusedArea = ChatFocusArea.CONTENT,
+            scrollPosition = messages.size - 1,
+            scrollTrigger = current.scrollTrigger + 1
         )
 
         Log.d(GlassesApp.TAG, "Submitted input: ${text.take(50)}")
@@ -816,23 +824,23 @@ class HudActivity : ComponentActivity() {
                     val current = hudState.value
                     val messages = current.messages.toMutableList()
 
+                    // Skip user echoes that were already displayed optimistically
+                    if (role == "user") {
+                        val lastUserMsg = messages.lastOrNull { it.role == "user" }
+                        if (lastUserMsg != null && lastUserMsg.content == content) {
+                            Log.d(GlassesApp.TAG, "Skipping user echo (already displayed): ${content.take(50)}")
+                            return
+                        }
+                    }
+
                     // Check if we already have a streaming message with this id
                     val existingIndex = messages.indexOfFirst { it.id == id }
-                    // Attach pending thumbnails to user messages
-                    val thumbnails = if (role == "user" && pendingMessageThumbnails.isNotEmpty()) {
-                        val t = pendingMessageThumbnails
-                        pendingMessageThumbnails = emptyList()
-                        t
-                    } else {
-                        emptyList()
-                    }
 
                     val displayMsg = DisplayMessage(
                         id = id,
                         role = role,
                         content = content,
-                        isStreaming = false,
-                        thumbnails = thumbnails
+                        isStreaming = false
                     )
 
                     if (existingIndex >= 0) {
@@ -1033,6 +1041,27 @@ class HudActivity : ComponentActivity() {
                     } else {
                         Log.e(GlassesApp.TAG, "Photo capture failed: ${msg.optString("message", "")}")
                     }
+                }
+
+                "remove_photo" -> {
+                    val all = msg.optBoolean("all", false)
+                    val current = hudState.value
+                    if (all) {
+                        hudState.value = current.copy(
+                            photoThumbnails = emptyList(),
+                            selectedPhotoIndex = 0
+                        )
+                    } else {
+                        val index = msg.optInt("index", -1)
+                        if (index in current.photoThumbnails.indices) {
+                            val updated = current.photoThumbnails.toMutableList().apply { removeAt(index) }
+                            hudState.value = current.copy(
+                                photoThumbnails = updated,
+                                selectedPhotoIndex = minOf(current.selectedPhotoIndex, updated.size - 1).coerceAtLeast(0)
+                            )
+                        }
+                    }
+                    Log.d(GlassesApp.TAG, "Photo removed from phone request")
                 }
 
                 else -> {

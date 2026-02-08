@@ -378,9 +378,13 @@ fun MainScreen() {
                     keyboardActions = KeyboardActions(
                         onSend = {
                             if (inputText.isNotBlank()) {
+                                val hadPhotos = pendingPhotos.isNotEmpty()
                                 openClawClient.sendMessage(inputText, pendingPhotos.ifEmpty { null })
                                 inputText = ""
                                 pendingPhotos = emptyList()
+                                if (hadPhotos) {
+                                    glassesManager.sendRawMessage("""{"type":"remove_photo","all":true}""")
+                                }
                             }
                         }
                     ),
@@ -458,9 +462,13 @@ fun MainScreen() {
                 IconButton(
                     onClick = {
                         if (inputText.isNotBlank()) {
+                            val hadPhotos = pendingPhotos.isNotEmpty()
                             openClawClient.sendMessage(inputText, pendingPhotos.ifEmpty { null })
                             inputText = ""
                             pendingPhotos = emptyList()
+                            if (hadPhotos) {
+                                glassesManager.sendRawMessage("""{"type":"remove_photo","all":true}""")
+                            }
                         }
                     }
                 ) {

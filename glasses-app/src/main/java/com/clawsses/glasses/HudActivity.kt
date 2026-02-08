@@ -723,7 +723,7 @@ class HudActivity : ComponentActivity() {
                             messages.add(DisplayMessage(
                                 id = id,
                                 role = role,
-                                lines = wrapText(content),
+                                content = content,
                                 isStreaming = false
                             ))
                         }

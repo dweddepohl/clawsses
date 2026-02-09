@@ -342,11 +342,6 @@ fun MainScreen() {
                             pendingPhotos = pendingPhotos.toMutableList().apply { removeAt(index) }
                         }
                     }
-                    "set_brightness" -> {
-                        val brightness = json.optInt("brightness", 15)
-                        android.util.Log.d("MainScreen", "Glasses requested brightness: $brightness")
-                        RokidSdkManager.setGlassBrightness(brightness)
-                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("MainScreen", "Error parsing glasses message", e)

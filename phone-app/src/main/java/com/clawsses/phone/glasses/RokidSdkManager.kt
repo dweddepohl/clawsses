@@ -744,15 +744,16 @@ object RokidSdkManager {
         return cxrApi?.notifyTtsAudioFinished()
     }
 
-    // --- Brightness control ---
+    // --- Screen off timeout ---
 
     /**
-     * Set glasses display brightness via CXR-M SDK.
-     * @param brightness value in [0, 15] — 0 is off, 15 is maximum.
+     * Configure the glasses idle screen-off timeout via CXR-M SDK.
+     * The hardware turns off the display after [seconds] of inactivity
+     * and wakes on user interaction.
      */
-    fun setGlassBrightness(brightness: Int): ValueUtil.CxrStatus? {
-        Log.d(TAG, "Setting glasses brightness to $brightness")
-        return cxrApi?.setGlassBrightness(brightness)
+    fun setScreenOffTimeout(seconds: Long): ValueUtil.CxrStatus? {
+        Log.d(TAG, "Setting screen off timeout to ${seconds}s")
+        return cxrApi?.setScreenOffTimeout(seconds)
     }
 
     // --- Camera methods (for AI photo capture via glasses camera) ---

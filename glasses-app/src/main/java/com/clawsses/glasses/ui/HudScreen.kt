@@ -201,9 +201,7 @@ data class ChatHudState(
     // Input staging area (voice text accumulation)
     val stagingText: String = "",
     val showInputStaging: Boolean = false,
-    val inputActionIndex: Int = 0,   // Index into combined row: [photo0..N-1, Clear, Send]. Default = Send (last)
-    // Standby mode — display blanked after idle timeout
-    val isStandby: Boolean = false
+    val inputActionIndex: Int = 0   // Index into combined row: [photo0..N-1, Clear, Send]. Default = Send (last)
 ) {
     /** Total number of messages */
     val totalMessages: Int get() = messages.size
@@ -266,23 +264,6 @@ fun HudScreen(
     onLongPress: () -> Unit = {},
     onScrolledToEndChanged: (Boolean) -> Unit = {}
 ) {
-    // Standby mode — blank the display entirely
-    if (state.isStandby) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = { onDoubleTap() },
-                        onTap = { onTap() },
-                        onLongPress = { onLongPress() }
-                    )
-                }
-        )
-        return
-    }
-
     val listState = rememberLazyListState()
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current

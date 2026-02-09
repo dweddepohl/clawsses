@@ -105,6 +105,7 @@ class GlassesConnectionManager(private val context: Context) {
             _connectionState.value = ConnectionState.Connected(name)
             reconnectAttempts = 0
             reconnectJob?.cancel()
+            RokidSdkManager.setScreenOffTimeout(30)
             Log.d(TAG, "SDK: Glasses connected")
         }
 

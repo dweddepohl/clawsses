@@ -55,6 +55,7 @@ fun GlassesSection(
     onClearSn: () -> Unit,
     hasCachedSn: Boolean,
     cachedSn: String?,
+    cachedDeviceName: String?,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -84,6 +85,7 @@ fun GlassesSection(
                         wifiP2PConnected = wifiP2PConnected,
                         hasCachedSn = hasCachedSn,
                         cachedSn = cachedSn,
+                        cachedDeviceName = cachedDeviceName,
                         onDisconnect = onDisconnectGlasses,
                         onInitWifiP2P = onInitWifiP2P,
                         onClearSn = onClearSn,
@@ -226,6 +228,7 @@ private fun ConnectedContent(
     wifiP2PConnected: Boolean,
     hasCachedSn: Boolean,
     cachedSn: String?,
+    cachedDeviceName: String?,
     onDisconnect: () -> Unit,
     onInitWifiP2P: () -> Unit,
     onClearSn: () -> Unit,
@@ -292,7 +295,7 @@ private fun ConnectedContent(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "SN: ${cachedSn ?: "encrypted"}",
+                    cachedDeviceName ?: "SN: ${cachedSn ?: "encrypted"}",
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Spacer(Modifier.height(8.dp))

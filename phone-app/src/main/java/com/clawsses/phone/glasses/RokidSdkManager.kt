@@ -107,6 +107,8 @@ object RokidSdkManager {
                 }
                 if (!name.isNullOrEmpty()) {
                     savedDeviceName = name
+                    cachedDeviceName = name
+                    saveDeviceName(name)
                     Log.i(TAG, "  deviceName=$name")
                 }
             } catch (e: Exception) {
@@ -445,7 +447,9 @@ object RokidSdkManager {
     private const val SN_PREFS = "clawsses_glasses_sn"
     private const val SN_KEY = "sn_encrypt_content"
     private const val SN_PLAIN_KEY = "sn_plain"
+    private const val DEVICE_NAME_KEY = "device_name"
     private var cachedSnPlain: String? = null
+    private var cachedDeviceName: String? = null
 
     private fun saveCachedSnEncryptContent(encrypted: ByteArray, plainSn: String? = null) {
         val ctx = appContext ?: return
@@ -470,10 +474,19 @@ object RokidSdkManager {
         try {
             generatedSnEncryptContent = Base64.decode(base64, Base64.NO_WRAP)
             cachedSnPlain = prefs.getString(SN_PLAIN_KEY, null)
+            cachedDeviceName = prefs.getString(DEVICE_NAME_KEY, null)
             Log.i(TAG, "Loaded cached SN encrypt content (${generatedSnEncryptContent!!.size} bytes)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load cached SN encrypt content", e)
         }
+    }
+
+    private fun saveDeviceName(name: String) {
+        val ctx = appContext ?: return
+        ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(DEVICE_NAME_KEY, name)
+            .apply()
     }
 
     /**
@@ -483,11 +496,13 @@ object RokidSdkManager {
     fun clearCachedSn() {
         generatedSnEncryptContent = null
         cachedSnPlain = null
+        cachedDeviceName = null
         val ctx = appContext ?: return
         ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(SN_KEY)
             .remove(SN_PLAIN_KEY)
+            .remove(DEVICE_NAME_KEY)
             .apply()
         Log.i(TAG, "Cleared cached SN encrypt content")
     }
@@ -501,6 +516,11 @@ object RokidSdkManager {
      * Get the cached plain-text glasses serial number, if available.
      */
     fun getCachedSn(): String? = cachedSnPlain
+
+    /**
+     * Get the cached device name (e.g., "Rokid Max 2"), if available.
+     */
+    fun getCachedDeviceName(): String? = cachedDeviceName
 
     /**
      * Send a custom command/message to the glasses via Bluetooth

@@ -295,7 +295,7 @@ private fun ConnectedContent(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    cachedDeviceName ?: "SN: ${cachedSn ?: "encrypted"}",
+                    cachedDeviceName ?: deviceName,
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Spacer(Modifier.height(8.dp))

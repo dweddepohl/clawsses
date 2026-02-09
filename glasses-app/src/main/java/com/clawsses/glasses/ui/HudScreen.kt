@@ -103,7 +103,6 @@ enum class MenuBarItem(val icon: String, val label: String) {
     SESSION("\u25CE", "Sess"),
     SIZE("\u2588", "Size"),  // Icon overridden dynamically based on next HudPosition
     MORE("\u2026", "More"),
-    EXIT("\u2715", "Exit")
 }
 
 /**
@@ -201,7 +200,9 @@ data class ChatHudState(
     // Input staging area (voice text accumulation)
     val stagingText: String = "",
     val showInputStaging: Boolean = false,
-    val inputActionIndex: Int = 0   // Index into combined row: [photo0..N-1, Clear, Send]. Default = Send (last)
+    val inputActionIndex: Int = 0,  // Index into combined row: [photo0..N-1, Clear, Send]. Default = Send (last)
+    // Exit confirmation dialog
+    val showExitConfirm: Boolean = false
 ) {
     /** Total number of messages */
     val totalMessages: Int get() = messages.size
@@ -462,6 +463,15 @@ fun HudScreen(
                 selectedIndex = state.selectedSlashIndex,
                 fontFamily = monoFontFamily
             )
+        }
+
+        // Exit confirmation overlay
+        AnimatedVisibility(
+            visible = state.showExitConfirm,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            ExitConfirmOverlay(fontFamily = monoFontFamily)
         }
     }
 }
@@ -1331,6 +1341,56 @@ private fun SlashCommandOverlay(
                 color = HudColors.dimText,
                 fontSize = 10.sp,
                 fontFamily = fontFamily
+            )
+        }
+    }
+}
+
+// ============================================================================
+// EXIT CONFIRMATION OVERLAY
+// ============================================================================
+
+@Composable
+private fun ExitConfirmOverlay(
+    fontFamily: FontFamily,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.95f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(
+                text = "EXIT",
+                color = HudColors.error,
+                fontSize = 16.sp,
+                fontFamily = fontFamily,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "2\u00D7TAP again to exit",
+                color = HudColors.primaryText,
+                fontSize = 14.sp,
+                fontFamily = fontFamily,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Any other input to continue",
+                color = HudColors.dimText,
+                fontSize = 12.sp,
+                fontFamily = fontFamily,
+                textAlign = TextAlign.Center
             )
         }
     }

@@ -338,6 +338,10 @@ class HudActivity : ComponentActivity() {
         Log.d(GlassesApp.TAG, "Gesture: $gesture, Area: ${current.focusedArea}")
 
         // If overlays are open, handle gestures for them
+        if (current.showExitConfirm) {
+            handleExitConfirmGesture(gesture)
+            return
+        }
         if (current.showSlashMenu) {
             handleSlashMenuGesture(gesture)
             return
@@ -536,10 +540,26 @@ class HudActivity : ComponentActivity() {
                 executeMenuItem(items[current.menuBarIndex])
             }
             Gesture.DOUBLE_TAP -> {
-                // Go back to CONTENT
-                hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
+                // Show exit confirmation dialog
+                hudState.value = current.copy(showExitConfirm = true)
             }
             Gesture.LONG_PRESS -> startVoice()
+        }
+    }
+
+    // ============== Exit Confirmation Gestures ==============
+
+    private fun handleExitConfirmGesture(gesture: Gesture) {
+        val current = hudState.value
+        when (gesture) {
+            Gesture.DOUBLE_TAP -> {
+                // Second double-tap confirms exit
+                finishAffinity()
+            }
+            else -> {
+                // Any other input dismisses the dialog
+                hudState.value = current.copy(showExitConfirm = false)
+            }
         }
     }
 
@@ -582,9 +602,6 @@ class HudActivity : ComponentActivity() {
                     showMoreMenu = true,
                     selectedMoreIndex = 0
                 )
-            }
-            MenuBarItem.EXIT -> {
-                finishAffinity()
             }
         }
     }

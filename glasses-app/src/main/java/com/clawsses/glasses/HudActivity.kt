@@ -799,16 +799,15 @@ class HudActivity : ComponentActivity() {
     private fun executeMoreMenuItem(item: MoreMenuItem) {
         val current = hudState.value
 
+        if (item.displaySize != null) {
+            hudState.value = current.copy(
+                displaySize = item.displaySize,
+                scrollTrigger = current.scrollTrigger + 1
+            )
+            return
+        }
+
         when (item) {
-            MoreMenuItem.FONT -> {
-                val sizes = HudDisplaySize.entries
-                val currentIndex = sizes.indexOf(current.displaySize)
-                val nextSize = sizes[(currentIndex + 1) % sizes.size]
-                hudState.value = current.copy(
-                    displaySize = nextSize,
-                    scrollTrigger = current.scrollTrigger + 1
-                )
-            }
             MoreMenuItem.SLASH -> {
                 hudState.value = current.copy(
                     showMoreMenu = false,
@@ -816,6 +815,7 @@ class HudActivity : ComponentActivity() {
                     selectedSlashIndex = 0
                 )
             }
+            else -> {}
         }
     }
 

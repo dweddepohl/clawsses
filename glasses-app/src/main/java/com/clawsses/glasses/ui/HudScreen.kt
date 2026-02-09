@@ -107,8 +107,11 @@ enum class MenuBarItem(val icon: String, val label: String) {
 /**
  * Items available in the MORE menu
  */
-enum class MoreMenuItem(val icon: String, val label: String) {
-    FONT("Aa", "Font"),
+enum class MoreMenuItem(val icon: String, val label: String, val displaySize: HudDisplaySize? = null) {
+    FONT_COMPACT("Aa", "Compact", HudDisplaySize.COMPACT),
+    FONT_NORMAL("Aa", "Normal", HudDisplaySize.NORMAL),
+    FONT_COMFORTABLE("Aa", "Comfortable", HudDisplaySize.COMFORTABLE),
+    FONT_LARGE("Aa", "Large", HudDisplaySize.LARGE),
     SLASH("/", "Slash Cmds"),
 }
 
@@ -477,6 +480,7 @@ fun HudScreen(
         ) {
             MoreMenuOverlay(
                 selectedIndex = state.selectedMoreIndex,
+                currentDisplaySize = state.displaySize,
                 fontFamily = monoFontFamily
             )
         }
@@ -1147,6 +1151,7 @@ private fun SessionPickerOverlay(
 @Composable
 private fun MoreMenuOverlay(
     selectedIndex: Int,
+    currentDisplaySize: HudDisplaySize,
     fontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
@@ -1173,45 +1178,44 @@ private fun MoreMenuOverlay(
             Spacer(modifier = Modifier.height(16.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items.chunked(2).forEach { rowItems ->
+                items.forEachIndexed { itemIndex, item ->
+                    val isSelected = itemIndex == selectedIndex
+                    val isActive = item.displaySize == currentDisplaySize
+
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        rowItems.forEach { item ->
-                            val itemIndex = items.indexOf(item)
-                            val isSelected = itemIndex == selectedIndex
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = "\u25B6",
-                                    color = if (isSelected) HudColors.green else Color.Transparent,
-                                    fontSize = 14.sp,
-                                    fontFamily = fontFamily
-                                )
-                                Text(
-                                    text = item.icon,
-                                    color = if (isSelected) HudColors.cyan else HudColors.primaryText,
-                                    fontSize = 14.sp,
-                                    fontFamily = fontFamily,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = item.label,
-                                    color = if (isSelected) HudColors.green else HudColors.dimText,
-                                    fontSize = 12.sp,
-                                    fontFamily = fontFamily
-                                )
-                            }
-                        }
-                        if (rowItems.size == 1) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
+                        // Selection indicator
+                        Text(
+                            text = "\u25B6",
+                            color = if (isSelected) HudColors.green else Color.Transparent,
+                            fontSize = 14.sp,
+                            fontFamily = fontFamily
+                        )
+                        // Active checkmark for font size items
+                        Text(
+                            text = if (isActive) "\u2713" else " ",
+                            color = HudColors.green,
+                            fontSize = 14.sp,
+                            fontFamily = fontFamily
+                        )
+                        // Icon and label rendered at the item's own font size for font entries
+                        val itemFontSize = item.displaySize?.fontSizeSp?.sp ?: 14.sp
+                        Text(
+                            text = item.icon,
+                            color = if (isSelected) HudColors.cyan else HudColors.primaryText,
+                            fontSize = itemFontSize,
+                            fontFamily = fontFamily,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = item.label,
+                            color = if (isSelected) HudColors.green else HudColors.dimText,
+                            fontSize = itemFontSize,
+                            fontFamily = fontFamily
+                        )
                     }
                 }
             }

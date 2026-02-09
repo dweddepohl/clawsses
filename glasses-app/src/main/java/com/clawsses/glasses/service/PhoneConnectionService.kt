@@ -31,7 +31,7 @@ class PhoneConnectionService(
 
     private var cxrBridge: CXRServiceBridge? = null
     private var debugClient: DebugPhoneClient? = null
-    private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var isRunning = false
     private var isConnected = false
     private var connectedDeviceName: String? = null
@@ -122,6 +122,13 @@ class PhoneConnectionService(
 
             override fun onARTCStatus(latency: Float, connected: Boolean) {
                 Log.d(TAG, "ARTC status: latency=$latency, connected=$connected")
+                // ARTC status with connected=true is another signal that the phone
+                // is connected, even if onConnected hasn't fired (e.g. after app restart).
+                if (connected && !isConnected) {
+                    Log.i(TAG, "Connection detected via ARTC status")
+                    isConnected = true
+                    _connectionState.value = ConnectionState.Connected("Phone (detected via ARTC)")
+                }
             }
 
             override fun onRokidAccountChanged(account: String?) {
@@ -150,6 +157,13 @@ class PhoneConnectionService(
                     else -> ""
                 }
                 if (message.isNotEmpty()) {
+                    // If we receive a message but haven't seen onConnected yet,
+                    // the phone reconnected and the BT link is alive. Mark connected.
+                    if (!isConnected) {
+                        Log.i(TAG, "Connection detected via message receipt (onConnected may not have fired)")
+                        isConnected = true
+                        _connectionState.value = ConnectionState.Connected("Phone (detected via message)")
+                    }
                     Log.d(TAG, "Message content (${message.length} chars): ${message.take(100)}...")
                     onMessageReceived(message)
                 } else {
@@ -257,22 +271,4 @@ class PhoneConnectionService(
         Log.d(TAG, "Phone connection service stopped (BT preserved)")
     }
 
-    /**
-     * Restart the connection after it was stopped.
-     *
-     * Root cause fix: When the glasses app is backgrounded then foregrounded (or killed
-     * and relaunched), we need to create a fresh CXRServiceBridge and re-register the
-     * StatusListener + message subscription. The CXR system service still holds the
-     * Bluetooth connection to the phone, so the new bridge's onConnected callback fires
-     * once it re-attaches to the existing connection.
-     */
-    fun restart() {
-        if (isRunning) {
-            Log.d(TAG, "Already running, stopping first before restart")
-            stop()
-        }
-        // Create a fresh coroutine scope since stop() cancelled the previous one
-        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-        startListening()
-    }
 }

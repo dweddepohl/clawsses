@@ -182,13 +182,17 @@ class HudActivity : ComponentActivity() {
             }
         }
 
-        // Connection is started in onStart() so it reliably reconnects on every
-        // foreground transition, not just the first launch. See onStart()/onStop().
+        lifecycleScope.launch {
+            phoneConnection.startListening()
+        }
 
         // Start standby idle timer
         resetIdleTimer()
 
-        // Observe connection state and request current state when phone connects
+        // Observe connection state and request current state when phone connects.
+        // This fires on first connect AND on reconnect (e.g. after glasses app restart,
+        // the phone auto-reconnects and the bridge fires onConnected or we detect
+        // the connection via message receipt / ARTC status).
         lifecycleScope.launch {
             phoneConnection.connectionState.collect { state ->
                 val isConnected = state is PhoneConnectionService.ConnectionState.Connected
@@ -201,21 +205,6 @@ class HudActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        phoneConnection.stop()
-    }
-
-    override fun onStart() {
-        super.onStart()
-        // Reconnect every time the activity becomes visible. On first launch, onStop()
-        // hasn't been called yet so restart() calls stop() (a no-op) then startListening().
-        // On subsequent returns (foreground after background, relaunch after kill) this
-        // re-establishes the CXR bridge or debug WebSocket so the glasses reliably
-        // show "connected" instead of staying stuck on "disconnected".
-        phoneConnection.restart()
     }
 
     override fun onTouchEvent(event: MotionEvent?): Boolean {
@@ -1398,6 +1387,6 @@ class HudActivity : ComponentActivity() {
         super.onDestroy()
         cameraCapture.cleanup()
         voiceHandler.cleanup()
-        // phoneConnection.stop() is handled by onStop(), which always runs before onDestroy
+        phoneConnection.stop()
     }
 }

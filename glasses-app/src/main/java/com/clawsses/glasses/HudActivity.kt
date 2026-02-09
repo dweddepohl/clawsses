@@ -1086,13 +1086,15 @@ class HudActivity : ComponentActivity() {
                                 val displayName = sessionObj.optString("displayName", "")
                                 val derivedTitle = sessionObj.optString("derivedTitle", "")
                                 val kind = sessionObj.optString("kind", "")
+                                val updatedAt = if (sessionObj.has("updatedAt")) sessionObj.optLong("updatedAt", 0L).takeIf { it > 0 } else null
                                 // Use best available name: label > displayName > derivedTitle > key
                                 val name = label.ifEmpty { displayName.ifEmpty { derivedTitle.ifEmpty { key } } }
                                 sessions.add(SessionPickerInfo(
                                     key = key,
                                     name = name,
                                     kind = kind.ifEmpty { null },
-                                    hasUnread = key in unreadKeys
+                                    hasUnread = key in unreadKeys,
+                                    updatedAt = updatedAt
                                 ))
                             }
                         }

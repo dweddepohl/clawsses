@@ -133,8 +133,28 @@ data class SessionPickerInfo(
     val key: String,
     val name: String,
     val kind: String? = null,
-    val hasUnread: Boolean = false
+    val hasUnread: Boolean = false,
+    val updatedAt: Long? = null
 )
+
+/** Format a millisecond epoch timestamp as a short relative time string. */
+private fun formatRelativeTime(timestampMs: Long): String {
+    val now = System.currentTimeMillis()
+    val diffMs = now - timestampMs
+    if (diffMs < 0) return "now"
+    val seconds = diffMs / 1000
+    val minutes = seconds / 60
+    val hours = minutes / 60
+    val days = hours / 24
+    return when {
+        seconds < 60 -> "now"
+        minutes < 60 -> "${minutes}m ago"
+        hours < 24 -> "${hours}h ago"
+        days == 1L -> "yesterday"
+        days < 30 -> "${days}d ago"
+        else -> "${days / 30}mo ago"
+    }
+}
 
 /**
  * Chat HUD state — replaces the old TerminalState
@@ -947,18 +967,32 @@ private fun SessionPickerOverlay(
                                     maxLines = 1
                                 )
                             }
-                            if (isCurrent) {
-                                Text(
-                                    text = "\u25CF",
-                                    color = HudColors.cyan,
-                                    fontSize = 12.sp
-                                )
-                            } else if (session.hasUnread) {
-                                Text(
-                                    text = "\u25CF",
-                                    color = HudColors.green,
-                                    fontSize = 12.sp
-                                )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (session.updatedAt != null) {
+                                    Text(
+                                        text = formatRelativeTime(session.updatedAt),
+                                        color = if (isSelected) Color.Black else HudColors.dimText,
+                                        fontSize = 10.sp,
+                                        fontFamily = fontFamily,
+                                        maxLines = 1
+                                    )
+                                }
+                                if (isCurrent) {
+                                    Text(
+                                        text = "\u25CF",
+                                        color = HudColors.cyan,
+                                        fontSize = 12.sp
+                                    )
+                                } else if (session.hasUnread) {
+                                    Text(
+                                        text = "\u25CF",
+                                        color = HudColors.green,
+                                        fontSize = 12.sp
+                                    )
+                                }
                             }
                         }
                     }

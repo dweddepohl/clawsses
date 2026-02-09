@@ -1,9 +1,13 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.clawsses.phone.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1016,9 +1020,10 @@ fun SettingsDialog(
 
                             Spacer(Modifier.height(8.dp))
 
-                            Row(
+                            FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 val isScanning = glassesState is GlassesConnectionManager.ConnectionState.Scanning
 
@@ -1029,8 +1034,7 @@ fun SettingsDialog(
                                             glassesManager?.startScanning()
                                             showDeviceList = true
                                         }
-                                    },
-                                    modifier = Modifier.weight(1f)
+                                    }
                                 ) {
                                     Icon(
                                         if (isScanning) Icons.Default.Stop else Icons.Default.BluetoothSearching,
@@ -1044,8 +1048,7 @@ fun SettingsDialog(
                                 if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
                                     if (!wifiP2PConnected) {
                                         Button(
-                                            onClick = { glassesManager?.initWifiP2P() },
-                                            modifier = Modifier.weight(1f)
+                                            onClick = { glassesManager?.initWifiP2P() }
                                         ) {
                                             Icon(Icons.Default.WifiTethering, contentDescription = null, modifier = Modifier.size(18.dp))
                                             Spacer(Modifier.width(4.dp))
@@ -1054,8 +1057,7 @@ fun SettingsDialog(
                                     }
 
                                     OutlinedButton(
-                                        onClick = { glassesManager?.disconnect() },
-                                        modifier = Modifier.weight(1f)
+                                        onClick = { glassesManager?.disconnect() }
                                     ) {
                                         Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(4.dp))

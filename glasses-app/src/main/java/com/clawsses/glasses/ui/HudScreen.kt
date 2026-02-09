@@ -164,7 +164,9 @@ data class ChatHudState(
     val selectedMoreIndex: Int = 0,
     // Slash command menu
     val showSlashMenu: Boolean = false,
-    val selectedSlashIndex: Int = 0
+    val selectedSlashIndex: Int = 0,
+    // Standby mode — display blanked after idle timeout
+    val isStandby: Boolean = false
 ) {
     /** Total number of messages */
     val totalMessages: Int get() = messages.size
@@ -227,6 +229,23 @@ fun HudScreen(
     onLongPress: () -> Unit = {},
     onScrolledToEndChanged: (Boolean) -> Unit = {}
 ) {
+    // Standby mode — blank the display entirely
+    if (state.isStandby) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = { onDoubleTap() },
+                        onTap = { onTap() },
+                        onLongPress = { onLongPress() }
+                    )
+                }
+        )
+        return
+    }
+
     val listState = rememberLazyListState()
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current

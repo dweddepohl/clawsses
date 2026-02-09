@@ -38,6 +38,7 @@ import com.clawsses.glasses.ui.SLASH_COMMANDS
 import com.clawsses.glasses.ui.VoiceInputState
 import com.clawsses.glasses.ui.theme.GlassesHudTheme
 import com.clawsses.glasses.voice.GlassesVoiceHandler
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -54,6 +55,9 @@ class HudActivity : ComponentActivity() {
         const val DEBUG_HOST = "10.0.2.2"
         const val DEBUG_PORT = 8081
         private const val CAMERA_PERMISSION_REQUEST = 1001
+
+        /** Idle timeout before entering standby mode (ms) */
+        const val STANDBY_IDLE_TIMEOUT_MS = 90_000L // 90 seconds
 
         private fun isEmulator(): Boolean {
             return (Build.FINGERPRINT.contains("generic")
@@ -76,6 +80,9 @@ class HudActivity : ComponentActivity() {
     private lateinit var cameraCapture: CameraCapture
 
     // Thumbnails to attach to the next user message echo from the server
+
+    // Standby idle timer
+    private var idleTimerJob: Job? = null
 
     // Debug keyboard input mode
     private var isCapturingKeyboardInput = false
@@ -178,6 +185,9 @@ class HudActivity : ComponentActivity() {
             phoneConnection.startListening()
         }
 
+        // Start standby idle timer
+        resetIdleTimer()
+
         // Observe connection state and request current state when phone connects
         lifecycleScope.launch {
             phoneConnection.connectionState.collect { state ->
@@ -208,6 +218,13 @@ class HudActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Any key press resets the standby timer (wake if in standby)
+        if (hudState.value.isStandby) {
+            resetIdleTimer()
+            return true  // consume the key that woke us
+        }
+        resetIdleTimer()
+
         // If capturing keyboard input for simulated voice, handle specially
         if (isCapturingKeyboardInput) {
             return handleKeyboardCapture(keyCode, event)
@@ -320,9 +337,49 @@ class HudActivity : ComponentActivity() {
         )
     }
 
+    // ============== Standby / Wake ==============
+
+    /**
+     * Reset (or start) the idle timer. Any meaningful activity calls this
+     * to prevent or exit standby mode. If the display is currently in standby,
+     * wake it first.
+     */
+    private fun resetIdleTimer() {
+        if (hudState.value.isStandby) {
+            wakeFromStandby()
+        }
+        idleTimerJob?.cancel()
+        idleTimerJob = lifecycleScope.launch {
+            delay(STANDBY_IDLE_TIMEOUT_MS)
+            enterStandby()
+        }
+    }
+
+    private fun enterStandby() {
+        Log.i(GlassesApp.TAG, "Entering standby mode")
+        hudState.value = hudState.value.copy(isStandby = true)
+        // Tell phone to set hardware brightness to 0 via CXR-M SDK
+        phoneConnection.sendToPhone("""{"type":"set_brightness","brightness":0}""")
+    }
+
+    private fun wakeFromStandby() {
+        Log.i(GlassesApp.TAG, "Waking from standby")
+        hudState.value = hudState.value.copy(isStandby = false)
+        // Tell phone to restore hardware brightness via CXR-M SDK
+        phoneConnection.sendToPhone("""{"type":"set_brightness","brightness":15}""")
+    }
+
     // ============== Simplified 3-Area Gesture Handling ==============
 
     private fun handleGesture(gesture: Gesture) {
+        // Wake from standby on any gesture — consume the gesture so
+        // the user doesn't accidentally trigger an action on wake.
+        if (hudState.value.isStandby) {
+            resetIdleTimer()
+            return
+        }
+        resetIdleTimer()
+
         val current = hudState.value
         val isVoiceActive = voiceHandler.isListening()
 
@@ -814,6 +871,12 @@ class HudActivity : ComponentActivity() {
             Log.d(GlassesApp.TAG, "handlePhoneMessage: ${json.length} chars, preview=${json.take(120)}")
             val msg = JSONObject(json)
             val type = msg.optString("type", "")
+
+            // Wake from standby and reset idle timer on content-bearing messages
+            if (type in setOf("chat_message", "chat_stream", "chat_stream_end",
+                    "agent_thinking", "chat_history", "voice_result")) {
+                resetIdleTimer()
+            }
 
             when (type) {
                 "chat_message" -> {

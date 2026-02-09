@@ -728,6 +728,17 @@ object RokidSdkManager {
         return cxrApi?.notifyTtsAudioFinished()
     }
 
+    // --- Brightness control ---
+
+    /**
+     * Set glasses display brightness via CXR-M SDK.
+     * @param brightness value in [0, 15] — 0 is off, 15 is maximum.
+     */
+    fun setGlassBrightness(brightness: Int): ValueUtil.CxrStatus? {
+        Log.d(TAG, "Setting glasses brightness to $brightness")
+        return cxrApi?.setGlassBrightness(brightness)
+    }
+
     // --- Camera methods (for AI photo capture via glasses camera) ---
 
     private val photoResultCallback = object : PhotoResultCallback {

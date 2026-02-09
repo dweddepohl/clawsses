@@ -258,6 +258,21 @@ data class SlashCommand(
     }
 }
 
+/**
+ * Glasses requests phone to set hardware brightness via CXR-M SDK.
+ * Used for standby (brightness=0) and wake (brightness=15).
+ */
+data class GlassesBrightness(
+    @SerializedName("type") val type: String = "set_brightness",
+    @SerializedName("brightness") val brightness: Int
+) {
+    fun toJson(): String = gson.toJson(this)
+
+    companion object {
+        fun fromJson(json: String): GlassesBrightness = gson.fromJson(json, GlassesBrightness::class.java)
+    }
+}
+
 // ============================================
 // Utility
 // ============================================

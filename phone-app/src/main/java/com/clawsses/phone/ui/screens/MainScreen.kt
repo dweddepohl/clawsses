@@ -234,8 +234,8 @@ fun MainScreen() {
                                         put("text", result.text)
                                     }
                                     glassesManager.sendRawMessage(resultMsg.toString())
-                                    openClawClient.sendMessage(result.text, pendingPhotos.ifEmpty { null })
-                                    pendingPhotos = emptyList()
+                                    // Don't send to OpenClaw here — glasses stages the text
+                                    // and sends user_input when user confirms via Send button
                                 }
                                 is VoiceCommandHandler.VoiceResult.Command -> {
                                     android.util.Log.d("MainScreen", "Voice result command: ${result.command}")
@@ -1379,8 +1379,8 @@ private fun startVoiceRecognition(
                     android.util.Log.i("MainScreen", "AI voice text: ${result.text.take(100)}")
                     RokidSdkManager.sendAsrContent(result.text)
                     RokidSdkManager.notifyAsrEnd()
-                    openClawClient.sendMessage(result.text, pendingPhotos().ifEmpty { null })
-                    onPhotosConsumed()
+                    // Don't send to OpenClaw here — glasses stages the text
+                    // and sends user_input when user confirms via Send button
                     val resultMsg = org.json.JSONObject().apply {
                         put("type", "voice_result")
                         put("result_type", "text")

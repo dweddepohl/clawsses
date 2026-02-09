@@ -31,6 +31,7 @@ import com.clawsses.glasses.ui.DisplayMessage
 import com.clawsses.glasses.ui.HudDisplaySize
 import com.clawsses.glasses.ui.HudPosition
 import com.clawsses.glasses.ui.HudScreen
+import com.clawsses.glasses.ui.InputActionItem
 import com.clawsses.glasses.ui.MenuBarItem
 import com.clawsses.glasses.ui.MoreMenuItem
 import com.clawsses.glasses.ui.SessionPickerInfo
@@ -409,6 +410,7 @@ class HudActivity : ComponentActivity() {
         when (current.focusedArea) {
             ChatFocusArea.CONTENT -> handleContentGesture(gesture)
             ChatFocusArea.PHOTOS -> handlePhotosGesture(gesture)
+            ChatFocusArea.INPUT -> handleInputGesture(gesture)
             ChatFocusArea.MENU -> handleMenuGesture(gesture)
         }
     }
@@ -421,11 +423,16 @@ class HudActivity : ComponentActivity() {
                 val current = hudState.value
                 val maxScroll = maxOf(0, current.messages.size - 1)
                 if (current.scrollPosition >= maxScroll && current.isScrolledToEnd) {
-                    // Push through: CONTENT → PHOTOS (if any) → MENU
+                    // Push through: CONTENT → PHOTOS (if any) → INPUT (if staging) → MENU
                     if (current.photoThumbnails.isNotEmpty()) {
                         hudState.value = current.copy(
                             focusedArea = ChatFocusArea.PHOTOS,
                             selectedPhotoIndex = 0
+                        )
+                    } else if (current.showInputStaging) {
+                        hudState.value = current.copy(
+                            focusedArea = ChatFocusArea.INPUT,
+                            inputActionIndex = 0
                         )
                     } else {
                         hudState.value = current.copy(
@@ -446,6 +453,11 @@ class HudActivity : ComponentActivity() {
                     hudState.value = current.copy(
                         focusedArea = ChatFocusArea.PHOTOS,
                         selectedPhotoIndex = 0
+                    )
+                } else if (current.showInputStaging) {
+                    hudState.value = current.copy(
+                        focusedArea = ChatFocusArea.INPUT,
+                        inputActionIndex = 0
                     )
                 } else {
                     hudState.value = current.copy(
@@ -473,10 +485,18 @@ class HudActivity : ComponentActivity() {
             }
             Gesture.SWIPE_BACKWARD -> {
                 if (current.selectedPhotoIndex >= count - 1) {
-                    hudState.value = current.copy(
-                        focusedArea = ChatFocusArea.MENU,
-                        menuBarIndex = 0
-                    )
+                    // Push through: PHOTOS → INPUT (if staging) → MENU
+                    if (current.showInputStaging) {
+                        hudState.value = current.copy(
+                            focusedArea = ChatFocusArea.INPUT,
+                            inputActionIndex = 0
+                        )
+                    } else {
+                        hudState.value = current.copy(
+                            focusedArea = ChatFocusArea.MENU,
+                            menuBarIndex = 0
+                        )
+                    }
                 } else {
                     hudState.value = current.copy(selectedPhotoIndex = current.selectedPhotoIndex + 1)
                 }
@@ -511,6 +531,74 @@ class HudActivity : ComponentActivity() {
         }
     }
 
+    // INPUT staging area gestures
+    private fun handleInputGesture(gesture: Gesture) {
+        val current = hudState.value
+        val items = InputActionItem.entries
+
+        when (gesture) {
+            Gesture.SWIPE_FORWARD -> {
+                if (current.inputActionIndex == 0) {
+                    // Push through: INPUT → PHOTOS (if any) → CONTENT
+                    if (current.photoThumbnails.isNotEmpty()) {
+                        hudState.value = current.copy(
+                            focusedArea = ChatFocusArea.PHOTOS,
+                            selectedPhotoIndex = current.photoThumbnails.size - 1
+                        )
+                    } else {
+                        hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
+                    }
+                } else {
+                    hudState.value = current.copy(inputActionIndex = current.inputActionIndex - 1)
+                }
+            }
+            Gesture.SWIPE_BACKWARD -> {
+                if (current.inputActionIndex >= items.size - 1) {
+                    // Push through: INPUT → MENU
+                    hudState.value = current.copy(
+                        focusedArea = ChatFocusArea.MENU,
+                        menuBarIndex = 0
+                    )
+                } else {
+                    hudState.value = current.copy(inputActionIndex = current.inputActionIndex + 1)
+                }
+            }
+            Gesture.TAP -> {
+                val selectedItem = items[current.inputActionIndex]
+                when (selectedItem) {
+                    InputActionItem.SEND -> {
+                        // Submit the staged text and dismiss
+                        val text = current.stagingText.trim()
+                        if (text.isNotEmpty()) {
+                            hudState.value = current.copy(inputText = text)
+                            submitInput()
+                        }
+                        // Dismiss staging area (submitInput resets focusedArea to CONTENT)
+                        hudState.value = hudState.value.copy(
+                            showInputStaging = false,
+                            stagingText = "",
+                            inputActionIndex = 0
+                        )
+                    }
+                    InputActionItem.CLEAR -> {
+                        // Clear staged text and dismiss
+                        hudState.value = current.copy(
+                            showInputStaging = false,
+                            stagingText = "",
+                            inputActionIndex = 0,
+                            focusedArea = ChatFocusArea.CONTENT
+                        )
+                    }
+                }
+            }
+            Gesture.DOUBLE_TAP -> {
+                // Go back to CONTENT
+                hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
+            }
+            Gesture.LONG_PRESS -> startVoice()
+        }
+    }
+
     // MENU area gestures
     private fun handleMenuGesture(gesture: Gesture) {
         val current = hudState.value
@@ -519,8 +607,13 @@ class HudActivity : ComponentActivity() {
         when (gesture) {
             Gesture.SWIPE_FORWARD -> {
                 if (current.menuBarIndex == 0) {
-                    // Push through: MENU → PHOTOS (if any) → CONTENT
-                    if (current.photoThumbnails.isNotEmpty()) {
+                    // Push through: MENU → INPUT (if staging) → PHOTOS (if any) → CONTENT
+                    if (current.showInputStaging) {
+                        hudState.value = current.copy(
+                            focusedArea = ChatFocusArea.INPUT,
+                            inputActionIndex = InputActionItem.entries.size - 1
+                        )
+                    } else if (current.photoThumbnails.isNotEmpty()) {
                         hudState.value = current.copy(
                             focusedArea = ChatFocusArea.PHOTOS,
                             selectedPhotoIndex = current.photoThumbnails.size - 1
@@ -632,7 +725,10 @@ class HudActivity : ComponentActivity() {
             selectedPhotoIndex = 0,
             focusedArea = ChatFocusArea.CONTENT,
             scrollPosition = messages.size - 1,
-            scrollTrigger = current.scrollTrigger + 1
+            scrollTrigger = current.scrollTrigger + 1,
+            showInputStaging = false,
+            stagingText = "",
+            inputActionIndex = 0
         )
     }
 
@@ -797,21 +893,39 @@ class HudActivity : ComponentActivity() {
         if (voiceHandler.isListening()) {
             voiceHandler.cancel()
         } else {
-            voiceHandler.startListening { result ->
-                handleVoiceResult(result)
-            }
+            // Don't pass a result callback — voice_result messages from the phone
+            // are handled directly in handlePhoneMessage to avoid the AI key path
+            // issue where onResult is never set because startVoice() isn't called.
+            voiceHandler.startListening { /* handled in handlePhoneMessage */ }
         }
     }
 
+    /** Append voice text to the staging area and show it. */
+    private fun stageVoiceText(text: String) {
+        Log.d(GlassesApp.TAG, "Staging voice text: ${text.take(100)}")
+        val current = hudState.value
+        val newStagingText = if (current.stagingText.isEmpty()) {
+            text
+        } else {
+            "${current.stagingText} $text"
+        }
+        hudState.value = current.copy(
+            stagingText = newStagingText,
+            showInputStaging = true,
+            focusedArea = ChatFocusArea.INPUT,
+            inputActionIndex = 0,
+            scrollTrigger = current.scrollTrigger + 1
+        )
+    }
+
     private fun handleVoiceResult(result: GlassesVoiceHandler.VoiceResult) {
+        // Called from onResult callback (start_voice path) and simulateVoiceInput (keyboard).
+        // For phone-originated voice_result messages, staging is handled in handlePhoneMessage.
         when (result) {
             is GlassesVoiceHandler.VoiceResult.Text -> {
-                Log.d(GlassesApp.TAG, "Voice input: ${result.text.take(100)}")
-                // Auto-submit voice text
                 val text = result.text.trim()
                 if (text.isNotEmpty()) {
-                    hudState.value = hudState.value.copy(inputText = text)
-                    submitInput()
+                    stageVoiceText(text)
                 }
             }
             is GlassesVoiceHandler.VoiceResult.Command -> {
@@ -837,14 +951,40 @@ class HudActivity : ComponentActivity() {
         when (command) {
             "scroll up" -> scrollUp()
             "scroll down" -> scrollDown()
-            "clear" -> hudState.value = hudState.value.copy(inputText = "")
-            "send", "enter" -> submitInput()
+            "clear" -> {
+                // Clear staging area if visible, otherwise clear inputText
+                val current = hudState.value
+                if (current.showInputStaging) {
+                    hudState.value = current.copy(
+                        showInputStaging = false,
+                        stagingText = "",
+                        inputActionIndex = 0,
+                        focusedArea = ChatFocusArea.CONTENT
+                    )
+                } else {
+                    hudState.value = current.copy(inputText = "")
+                }
+            }
+            "send", "enter" -> {
+                // Submit staging text if visible, otherwise submit inputText
+                val current = hudState.value
+                if (current.showInputStaging && current.stagingText.isNotBlank()) {
+                    hudState.value = current.copy(inputText = current.stagingText.trim())
+                    submitInput()
+                    hudState.value = hudState.value.copy(
+                        showInputStaging = false,
+                        stagingText = "",
+                        inputActionIndex = 0
+                    )
+                } else {
+                    submitInput()
+                }
+            }
             else -> {
-                // Treat as text input — auto-submit
+                // Treat as text input — stage it
                 val text = command.trim()
                 if (text.isNotEmpty()) {
-                    hudState.value = hudState.value.copy(inputText = text)
-                    submitInput()
+                    stageVoiceText(text)
                 }
             }
         }
@@ -1120,7 +1260,19 @@ class HudActivity : ComponentActivity() {
                 "voice_result" -> {
                     val resultType = msg.optString("result_type", "text")
                     val text = msg.optString("text", "")
+                    // Update voice handler state (sets to Idle, clears onResult)
                     voiceHandler.handleVoiceResult(resultType, text)
+                    // Stage text directly — don't rely on onResult callback
+                    // which may not be set (AI key path bypasses startVoice on glasses)
+                    when (resultType) {
+                        "text" -> {
+                            val trimmed = text.trim()
+                            if (trimmed.isNotEmpty()) {
+                                stageVoiceText(trimmed)
+                            }
+                        }
+                        "command" -> handleVoiceCommand(text)
+                    }
                 }
 
                 "photo_result" -> {

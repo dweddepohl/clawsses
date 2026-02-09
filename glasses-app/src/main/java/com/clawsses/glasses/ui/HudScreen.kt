@@ -67,13 +67,21 @@ enum class HudPosition(val label: String) {
 }
 
 /**
- * The two focus areas of the chat UI.
- * Input is voice-only (long-press) so it doesn't need its own focus.
+ * Focus areas of the chat UI.
  */
 enum class ChatFocusArea {
     CONTENT,  // Chat messages (scrollable)
     PHOTOS,   // Photo strip (between content and menu)
+    INPUT,    // Voice input staging area (Send / Clear buttons)
     MENU      // Bottom menu bar
+}
+
+/**
+ * Action buttons in the input staging area
+ */
+enum class InputActionItem(val icon: String, val label: String) {
+    SEND("\u21B5", "Send"),
+    CLEAR("\u2715", "Clear")
 }
 
 /**
@@ -186,6 +194,10 @@ data class ChatHudState(
     // Slash command menu
     val showSlashMenu: Boolean = false,
     val selectedSlashIndex: Int = 0,
+    // Input staging area (voice text accumulation)
+    val stagingText: String = "",
+    val showInputStaging: Boolean = false,
+    val inputActionIndex: Int = 0,   // 0 = Send, 1 = Clear
     // Standby mode — display blanked after idle timeout
     val isStandby: Boolean = false
 ) {
@@ -313,10 +325,12 @@ fun HudScreen(
     // Focus brightness
     val contentFocused = state.focusedArea == ChatFocusArea.CONTENT
     val photosFocused = state.focusedArea == ChatFocusArea.PHOTOS
+    val inputFocused = state.focusedArea == ChatFocusArea.INPUT
     val menuFocused = state.focusedArea == ChatFocusArea.MENU
 
     val contentAlpha = focusBrightness(contentFocused)
     val photosAlpha = focusBrightness(photosFocused)
+    val inputAlpha = focusBrightness(inputFocused)
     val menuAlpha = focusBrightness(menuFocused)
 
     // HUD position offset
@@ -409,6 +423,22 @@ fun HudScreen(
                         isFocused = photosFocused,
                         fontFamily = monoFontFamily,
                         alpha = photosAlpha
+                    )
+                }
+
+                // INPUT STAGING AREA
+                AnimatedVisibility(
+                    visible = state.showInputStaging,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    InputStagingArea(
+                        text = state.stagingText,
+                        selectedActionIndex = state.inputActionIndex,
+                        isFocused = inputFocused,
+                        fontFamily = monoFontFamily,
+                        fontSize = fontSize,
+                        alpha = inputAlpha
                     )
                 }
 
@@ -532,6 +562,7 @@ private fun TopBar(
             val (modeLabel, modeColor) = when (focusedArea) {
                 ChatFocusArea.CONTENT -> "SCROLL" to HudColors.cyan
                 ChatFocusArea.PHOTOS -> "PHOTO" to HudColors.green
+                ChatFocusArea.INPUT -> "INPUT" to HudColors.yellow
                 ChatFocusArea.MENU -> "MENU" to HudColors.green
             }
             Text(
@@ -797,6 +828,104 @@ private fun PhotoThumbnailRow(
                 contentScale = ContentScale.Crop,
                 colorFilter = greenColorMatrix
             )
+        }
+    }
+}
+
+// ============================================================================
+// INPUT STAGING AREA
+// ============================================================================
+
+@Composable
+private fun InputStagingArea(
+    text: String,
+    selectedActionIndex: Int,
+    isFocused: Boolean,
+    fontFamily: FontFamily,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    alpha: Float,
+    modifier: Modifier = Modifier
+) {
+    val commandFontSize = 8.sp  // Match menu bar fixed size
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(alpha)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+    ) {
+        // Staged text display
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    HudColors.green.copy(alpha = 0.08f),
+                    RoundedCornerShape(4.dp)
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (isFocused) HudColors.yellow.copy(alpha = 0.6f) else HudColors.dimText.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(4.dp)
+                )
+                .padding(horizontal = 6.dp, vertical = 4.dp)
+                .heightIn(min = 20.dp, max = 60.dp)
+        ) {
+            Text(
+                text = text.ifEmpty { "..." },
+                color = if (text.isEmpty()) HudColors.dimText else HudColors.primaryText,
+                fontSize = fontSize,
+                fontFamily = fontFamily,
+                lineHeight = fontSize,
+                letterSpacing = 0.sp,
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        // Send / Clear action buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            InputActionItem.entries.forEachIndexed { index, item ->
+                val isSelected = index == selectedActionIndex && isFocused
+
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (isSelected) HudColors.green.copy(alpha = 0.3f) else Color.Transparent,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .border(
+                            width = if (isSelected) 1.dp else 0.dp,
+                            color = if (isSelected) HudColors.green else Color.Transparent,
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 3.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = item.icon,
+                            color = if (isSelected) HudColors.green else HudColors.primaryText,
+                            fontSize = (commandFontSize.value + 2).sp,
+                            fontFamily = fontFamily
+                        )
+                        Text(
+                            text = item.label,
+                            color = if (isSelected) HudColors.green else HudColors.dimText,
+                            fontSize = commandFontSize,
+                            fontFamily = fontFamily,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
         }
     }
 }

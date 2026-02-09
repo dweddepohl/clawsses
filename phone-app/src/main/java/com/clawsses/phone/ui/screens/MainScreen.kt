@@ -1,13 +1,12 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-
 package com.clawsses.phone.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,10 +24,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,12 +32,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -52,16 +44,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.os.Build
 import com.clawsses.phone.glasses.ApkInstaller
 import com.clawsses.phone.glasses.GlassesConnectionManager
 import com.clawsses.phone.glasses.RokidSdkManager
 import com.clawsses.phone.openclaw.DeviceIdentity
 import com.clawsses.phone.openclaw.OpenClawClient
+import com.clawsses.phone.ui.settings.SettingsScreen
 import com.clawsses.phone.voice.VoiceCommandHandler
 import com.clawsses.phone.voice.VoiceLanguageManager
 import com.clawsses.shared.ChatMessage
@@ -358,6 +348,7 @@ fun MainScreen() {
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -547,60 +538,78 @@ fun MainScreen() {
         }
     }
 
-    // Debug mode state
+    // Glasses state for settings
     val debugModeEnabled by glassesManager.debugModeEnabled.collectAsState()
+    val discoveredDevices by glassesManager.discoveredDevices.collectAsState()
+    val wifiP2PConnected by glassesManager.wifiP2PConnected.collectAsState()
+    var hasCachedSn by remember { mutableStateOf(RokidSdkManager.hasCachedSn()) }
+    var cachedSn by remember { mutableStateOf(RokidSdkManager.getCachedSn()) }
+    val sdkConnected = glassesState is GlassesConnectionManager.ConnectionState.Connected && !debugModeEnabled
 
-    // Settings dialog
-    if (showSettings) {
-        SettingsDialog(
+    // Settings screen (full-screen overlay with slide-up animation)
+    AnimatedVisibility(
+        visible = showSettings,
+        enter = slideInVertically(initialOffsetY = { it }),
+        exit = slideOutVertically(targetOffsetY = { it }),
+    ) {
+        SettingsScreen(
+            // Server
             openClawHost = openClawHost,
-            onHostChange = {
-                openClawHost = it
-                prefs.edit().putString("openclaw_host", it).apply()
-                // Cancel any in-progress connection so user can reconnect with new settings
-                if (openClawState !is OpenClawClient.ConnectionState.Disconnected &&
-                    openClawState !is OpenClawClient.ConnectionState.Connected) {
-                    openClawClient.disconnect()
-                }
-            },
             openClawPort = openClawPort,
-            onPortChange = {
-                openClawPort = it
-                prefs.edit().putString("openclaw_port", it).apply()
-                if (openClawState !is OpenClawClient.ConnectionState.Disconnected &&
-                    openClawState !is OpenClawClient.ConnectionState.Connected) {
-                    openClawClient.disconnect()
-                }
-            },
             openClawToken = openClawToken,
-            onTokenChange = {
-                openClawToken = it
-                prefs.edit().putString("openclaw_token", it).apply()
-                if (openClawState !is OpenClawClient.ConnectionState.Disconnected &&
-                    openClawState !is OpenClawClient.ConnectionState.Connected) {
-                    openClawClient.disconnect()
-                }
+            openClawState = openClawState,
+            onApplyServerSettings = { host, port, token ->
+                openClawHost = host
+                openClawPort = port
+                openClawToken = token
+                prefs.edit()
+                    .putString("openclaw_host", host)
+                    .putString("openclaw_port", port)
+                    .putString("openclaw_token", token)
+                    .apply()
+                openClawClient.disconnect()
             },
+            // Glasses
+            glassesState = glassesState,
+            discoveredDevices = discoveredDevices,
+            wifiP2PConnected = wifiP2PConnected,
             debugModeEnabled = debugModeEnabled,
+            onStartScanning = { glassesManager.startScanning() },
+            onStopScanning = { glassesManager.stopScanning() },
+            onConnectDevice = { device -> glassesManager.connectToDevice(device) },
+            onDisconnectGlasses = { glassesManager.disconnect() },
+            onInitWifiP2P = { glassesManager.initWifiP2P() },
+            onClearSn = {
+                RokidSdkManager.clearCachedSn()
+                hasCachedSn = false
+                cachedSn = null
+            },
+            hasCachedSn = hasCachedSn,
+            cachedSn = cachedSn,
+            // Software Update
+            installState = installState,
+            sdkConnected = sdkConnected,
+            onInstall = { apkInstaller.installViaSdk() },
+            onCancelInstall = { apkInstaller.cancelInstallation() },
+            // Voice
+            voiceLanguageManager = voiceLanguageManager,
+            // Developer
             onDebugModeChange = { enabled ->
                 if (enabled) glassesManager.enableDebugMode()
                 else glassesManager.disableDebugMode()
             },
-            onDismiss = {
+            // Navigation
+            onBack = {
                 showSettings = false
+                glassesManager.stopScanning()
                 if (installState is ApkInstaller.InstallState.Success ||
                     installState is ApkInstaller.InstallState.Error) {
                     apkInstaller.resetState()
                 }
             },
-            installState = installState,
-            apkInstaller = apkInstaller,
-            onCancelInstall = { apkInstaller.cancelInstallation() },
-            glassesManager = glassesManager,
-            glassesState = glassesState,
-            voiceLanguageManager = voiceLanguageManager,
         )
     }
+    } // Box
 }
 
 @Composable
@@ -862,502 +871,6 @@ fun SessionSelector(
     }
 }
 
-@Composable
-fun SettingsDialog(
-    openClawHost: String,
-    onHostChange: (String) -> Unit,
-    openClawPort: String,
-    onPortChange: (String) -> Unit,
-    openClawToken: String,
-    onTokenChange: (String) -> Unit,
-    debugModeEnabled: Boolean,
-    onDebugModeChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
-    installState: ApkInstaller.InstallState,
-    apkInstaller: ApkInstaller,
-    onCancelInstall: () -> Unit,
-    glassesManager: GlassesConnectionManager? = null,
-    glassesState: GlassesConnectionManager.ConnectionState? = null,
-    voiceLanguageManager: VoiceLanguageManager? = null,
-) {
-    var showDeviceList by remember { mutableStateOf(false) }
-    var tokenVisible by remember { mutableStateOf(false) }
-    val discoveredDevices = glassesManager?.discoveredDevices?.collectAsState()?.value ?: emptyList()
-    val wifiP2PConnected = glassesManager?.wifiP2PConnected?.collectAsState()?.value ?: false
-    val sdkConnected = glassesState is GlassesConnectionManager.ConnectionState.Connected && !debugModeEnabled
-    val availableLanguages = voiceLanguageManager?.availableLanguages?.collectAsState()?.value ?: emptyList()
-    val selectedLanguage = voiceLanguageManager?.selectedLanguage?.collectAsState()?.value ?: ""
-    var showLanguagePicker by remember { mutableStateOf(false) }
-
-    val tabTitles = listOf("Glasses", "OpenClaw", "Customize")
-    var selectedTab by remember { mutableIntStateOf(0) }
-
-    AlertDialog(
-        onDismissRequest = {
-            if (installState is ApkInstaller.InstallState.Idle ||
-                installState is ApkInstaller.InstallState.Success ||
-                installState is ApkInstaller.InstallState.Error) {
-                glassesManager?.stopScanning()
-                onDismiss()
-            }
-        },
-        title = {
-            Column {
-                Text("Settings")
-                Spacer(Modifier.height(8.dp))
-                TabRow(selectedTabIndex = selectedTab) {
-                    tabTitles.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title, fontSize = 12.sp) }
-                        )
-                    }
-                }
-            }
-        },
-        text = {
-            when (selectedTab) {
-                // ============== Tab 0: Glasses Connection ==============
-                0 -> LazyColumn {
-                    item {
-                        if (isEmulator()) {
-                            // Debug mode toggle (only shown in emulator)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Debug Mode", style = MaterialTheme.typography.bodyLarge)
-                                    Text(
-                                        "Use WebSocket instead of Bluetooth for glasses",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.Gray
-                                    )
-                                }
-                                Switch(
-                                    checked = debugModeEnabled,
-                                    onCheckedChange = onDebugModeChange
-                                )
-                            }
-
-                            if (debugModeEnabled) {
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "Glasses app connects to port 8081.\n" +
-                                    "Run: adb forward tcp:8081 tcp:8081",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-
-                        if (!debugModeEnabled) {
-                            // Saved glasses SN
-                            if (RokidSdkManager.hasCachedSn()) {
-                                Spacer(Modifier.height(16.dp))
-                                val snText = RokidSdkManager.getCachedSn()
-                                Text(
-                                    "Saved SN: ${snText ?: "encrypted"}",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = { RokidSdkManager.clearCachedSn() },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Clear saved glasses SN")
-                                }
-                                Text(
-                                    "Use if switching to different glasses",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
-                                )
-                            }
-
-                            Spacer(Modifier.height(16.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    when (glassesState) {
-                                        is GlassesConnectionManager.ConnectionState.Connected -> Icons.Default.CheckCircle
-                                        is GlassesConnectionManager.ConnectionState.Connecting,
-                                        is GlassesConnectionManager.ConnectionState.Scanning,
-                                        is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> Icons.Default.Sync
-                                        is GlassesConnectionManager.ConnectionState.Error -> Icons.Default.Error
-                                        else -> Icons.Default.BluetoothDisabled
-                                    },
-                                    contentDescription = null,
-                                    tint = when (glassesState) {
-                                        is GlassesConnectionManager.ConnectionState.Connected -> Color(0xFF4CAF50)
-                                        is GlassesConnectionManager.ConnectionState.Connecting,
-                                        is GlassesConnectionManager.ConnectionState.Scanning,
-                                        is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> Color(0xFFFFC107)
-                                        is GlassesConnectionManager.ConnectionState.Error -> Color(0xFFF44336)
-                                        else -> Color.Gray
-                                    },
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    when (glassesState) {
-                                        is GlassesConnectionManager.ConnectionState.Connected ->
-                                            "Connected: ${glassesState.deviceName}"
-                                        is GlassesConnectionManager.ConnectionState.Connecting -> "Connecting..."
-                                        is GlassesConnectionManager.ConnectionState.Scanning -> "Scanning for glasses..."
-                                        is GlassesConnectionManager.ConnectionState.InitializingWifiP2P -> "Setting up WiFi P2P..."
-                                        is GlassesConnectionManager.ConnectionState.Error -> "Error: ${glassesState.message}"
-                                        else -> "Not connected"
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-
-                            if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
-                                Spacer(Modifier.height(4.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        if (wifiP2PConnected) Icons.Default.WifiTethering else Icons.Default.WifiTetheringOff,
-                                        contentDescription = null,
-                                        tint = if (wifiP2PConnected) Color(0xFF4CAF50) else Color.Gray,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        if (wifiP2PConnected) "WiFi P2P: Connected" else "WiFi P2P: Not connected",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (wifiP2PConnected) Color(0xFF4CAF50) else Color.Gray
-                                    )
-                                }
-                            }
-
-                            Spacer(Modifier.height(8.dp))
-
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val isScanning = glassesState is GlassesConnectionManager.ConnectionState.Scanning
-
-                                OutlinedButton(
-                                    onClick = {
-                                        if (isScanning) glassesManager?.stopScanning()
-                                        else {
-                                            glassesManager?.startScanning()
-                                            showDeviceList = true
-                                        }
-                                    }
-                                ) {
-                                    Icon(
-                                        if (isScanning) Icons.Default.Stop else Icons.Default.BluetoothSearching,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if (isScanning) "Stop" else "Scan")
-                                }
-
-                                if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
-                                    if (!wifiP2PConnected) {
-                                        Button(
-                                            onClick = { glassesManager?.initWifiP2P() }
-                                        ) {
-                                            Icon(Icons.Default.WifiTethering, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(4.dp))
-                                            Text("WiFi P2P")
-                                        }
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = { glassesManager?.disconnect() }
-                                    ) {
-                                        Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Disconnect")
-                                    }
-                                }
-                            }
-
-                            if (showDeviceList && discoveredDevices.isNotEmpty()) {
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "Found ${discoveredDevices.size} device(s):",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
-                                )
-                                Spacer(Modifier.height(4.dp))
-
-                                discoveredDevices.forEach { device ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(device.name, style = MaterialTheme.typography.bodyMedium)
-                                            Text(
-                                                "${device.address} (RSSI: ${device.rssi})",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = Color.Gray
-                                            )
-                                        }
-                                        TextButton(
-                                            onClick = {
-                                                glassesManager?.connectToDevice(device)
-                                                showDeviceList = false
-                                            }
-                                        ) {
-                                            Text("Connect")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Installation Section
-                        if (sdkConnected) {
-                            Spacer(Modifier.height(16.dp))
-
-                            Text("Glasses App Installation", style = MaterialTheme.typography.titleSmall)
-                            Spacer(Modifier.height(8.dp))
-
-                            Text(
-                                "Install via Bluetooth + WiFi P2P",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
-                            )
-                            Spacer(Modifier.height(8.dp))
-
-                            Button(
-                                onClick = { apkInstaller.installViaSdk() },
-                                enabled = installState is ApkInstaller.InstallState.Idle ||
-                                         installState is ApkInstaller.InstallState.Error ||
-                                         installState is ApkInstaller.InstallState.Success,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Install app to glasses")
-                            }
-
-                            Spacer(Modifier.height(16.dp))
-
-                            InstallationSection(
-                                installState = installState,
-                                onCancel = onCancelInstall,
-                                onRetry = { apkInstaller.installViaSdk() }
-                            )
-                        }
-                    }
-                }
-
-                // ============== Tab 1: OpenClaw Server ==============
-                1 -> LazyColumn {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = openClawHost,
-                                onValueChange = onHostChange,
-                                label = { Text("Host / IP") },
-                                modifier = Modifier.weight(2f),
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                value = openClawPort,
-                                onValueChange = onPortChange,
-                                label = { Text("Port") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true
-                            )
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = openClawToken,
-                            onValueChange = onTokenChange,
-                            label = { Text("Gateway Token") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                                    Icon(
-                                        imageVector = if (tokenVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                        contentDescription = if (tokenVisible) "Hide token" else "Show token"
-                                    )
-                                }
-                            }
-                        )
-                    }
-                }
-
-                // ============== Tab 2: Customize ==============
-                2 -> LazyColumn {
-                    item {
-                        Text("Voice Language", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(8.dp))
-
-                        val currentLangDisplay = availableLanguages
-                            .firstOrNull { it.tag == selectedLanguage }
-                            ?.displayName ?: selectedLanguage.ifEmpty { "Default" }
-
-                        OutlinedButton(
-                            onClick = { showLanguagePicker = !showLanguagePicker },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(currentLangDisplay, modifier = Modifier.weight(1f))
-                            Icon(
-                                if (showLanguagePicker) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        if (showLanguagePicker) {
-                            Spacer(Modifier.height(4.dp))
-                            if (availableLanguages.isEmpty()) {
-                                Text(
-                                    "No languages available",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
-                                )
-                            } else {
-                                Column {
-                                    availableLanguages.forEach { lang ->
-                                        val isSelected = lang.tag == selectedLanguage
-                                        TextButton(
-                                            onClick = {
-                                                voiceLanguageManager?.selectLanguage(lang.tag)
-                                                showLanguagePicker = false
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    if (isSelected) Icons.Default.RadioButtonChecked
-                                                    else Icons.Default.RadioButtonUnchecked,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(18.dp),
-                                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray
-                                                )
-                                                Spacer(Modifier.width(8.dp))
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        lang.displayName,
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = if (isSelected) MaterialTheme.colorScheme.primary
-                                                                else MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                    Text(
-                                                        lang.tag,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = Color.Gray
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    glassesManager?.stopScanning()
-                    onDismiss()
-                },
-                enabled = installState is ApkInstaller.InstallState.Idle ||
-                         installState is ApkInstaller.InstallState.Success ||
-                         installState is ApkInstaller.InstallState.Error
-            ) {
-                Text("Close")
-            }
-        }
-    )
-}
-
-@Composable
-private fun InstallationSection(
-    installState: ApkInstaller.InstallState,
-    onCancel: () -> Unit,
-    onRetry: () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        when (installState) {
-            is ApkInstaller.InstallState.Idle -> {}
-            is ApkInstaller.InstallState.CheckingConnection -> InstallProgressRow("Connecting to glasses...")
-            is ApkInstaller.InstallState.InitializingWifiP2P -> InstallProgressRow("Establishing WiFi P2P connection...")
-            is ApkInstaller.InstallState.PreparingApk -> InstallProgressRow("Preparing APK...")
-            is ApkInstaller.InstallState.Uploading -> {
-                InstallProgressRow(installState.message)
-                if (installState.progress >= 0) {
-                    Spacer(Modifier.height(4.dp))
-                    Text("${installState.progress}%", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
-            }
-            is ApkInstaller.InstallState.Installing -> {
-                InstallProgressRow(installState.message)
-                Spacer(Modifier.height(4.dp))
-                Text("Do not disconnect the glasses", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            }
-            is ApkInstaller.InstallState.Success -> {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(installState.message, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF4CAF50))
-                }
-            }
-            is ApkInstaller.InstallState.Error -> {
-                Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Error, contentDescription = null, tint = Color(0xFFF44336), modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(installState.message, style = MaterialTheme.typography.bodySmall, color = Color(0xFFF44336))
-                }
-                if (installState.canRetry) {
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Try Again")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun InstallProgressRow(message: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-        Spacer(Modifier.width(12.dp))
-        Text(message, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
 /**
  * Start voice recognition with automatic retry on error.
  */
@@ -1436,19 +949,6 @@ private fun startVoiceRecognition(
  * Build a chat_history JSON message for sending to glasses.
  * Truncates long messages and limits total size for CXR/Bluetooth safety.
  */
-private fun isEmulator(): Boolean {
-    return (Build.FINGERPRINT.contains("generic")
-            || Build.FINGERPRINT.contains("emulator")
-            || Build.MODEL.contains("Emulator")
-            || Build.MODEL.contains("Android SDK built for")
-            || Build.MODEL.contains("sdk_gphone")
-            || Build.MANUFACTURER.contains("Genymotion")
-            || Build.HARDWARE.contains("goldfish")
-            || Build.HARDWARE.contains("ranchu")
-            || Build.PRODUCT.contains("sdk")
-            || Build.PRODUCT.contains("emulator"))
-}
-
 private fun buildChatHistoryJson(messages: List<ChatMessage>): String {
     // Take only the most recent messages — CXR channel has limited bandwidth
     val maxMessages = 20

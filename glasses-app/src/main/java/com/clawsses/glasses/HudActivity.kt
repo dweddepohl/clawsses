@@ -35,6 +35,7 @@ import com.clawsses.glasses.ui.InputActionItem
 import com.clawsses.glasses.ui.MenuBarItem
 import com.clawsses.glasses.ui.MoreMenuItem
 import com.clawsses.glasses.ui.SessionPickerInfo
+import com.clawsses.glasses.ui.MAX_PHOTOS
 import com.clawsses.glasses.ui.SLASH_COMMANDS
 import com.clawsses.glasses.ui.VoiceInputState
 import com.clawsses.glasses.ui.theme.GlassesHudTheme
@@ -147,9 +148,13 @@ class HudActivity : ComponentActivity() {
                 when (photoState) {
                     is PhotoCaptureState.Captured -> {
                         val current = hudState.value
-                        hudState.value = current.copy(
-                            photoThumbnails = current.photoThumbnails + photoState.thumbnail
-                        )
+                        if (current.photoThumbnails.size < MAX_PHOTOS) {
+                            hudState.value = current.copy(
+                                photoThumbnails = current.photoThumbnails + photoState.thumbnail
+                            )
+                        } else {
+                            Log.w(GlassesApp.TAG, "Max $MAX_PHOTOS photos reached, ignoring capture")
+                        }
                     }
                     is PhotoCaptureState.Error -> {
                         Log.e(GlassesApp.TAG, "Photo capture error: ${photoState.message}")
@@ -409,7 +414,6 @@ class HudActivity : ComponentActivity() {
         // Route by focused area
         when (current.focusedArea) {
             ChatFocusArea.CONTENT -> handleContentGesture(gesture)
-            ChatFocusArea.PHOTOS -> handlePhotosGesture(gesture)
             ChatFocusArea.INPUT -> handleInputGesture(gesture)
             ChatFocusArea.MENU -> handleMenuGesture(gesture)
         }
@@ -423,16 +427,13 @@ class HudActivity : ComponentActivity() {
                 val current = hudState.value
                 val maxScroll = maxOf(0, current.messages.size - 1)
                 if (current.scrollPosition >= maxScroll && current.isScrolledToEnd) {
-                    // Push through: CONTENT → PHOTOS (if any) → INPUT (if staging) → MENU
-                    if (current.photoThumbnails.isNotEmpty()) {
-                        hudState.value = current.copy(
-                            focusedArea = ChatFocusArea.PHOTOS,
-                            selectedPhotoIndex = 0
-                        )
-                    } else if (current.showInputStaging) {
+                    // Push through: CONTENT → INPUT (if staging or photos) → MENU
+                    if (current.showInputStaging || current.photoThumbnails.isNotEmpty()) {
+                        // Default focus on Send (last item in combined row)
+                        val sendIndex = current.photoThumbnails.size + 1
                         hudState.value = current.copy(
                             focusedArea = ChatFocusArea.INPUT,
-                            inputActionIndex = 0
+                            inputActionIndex = sendIndex
                         )
                     } else {
                         hudState.value = current.copy(
@@ -449,15 +450,11 @@ class HudActivity : ComponentActivity() {
             Gesture.TAP -> scrollToBottom()
             Gesture.DOUBLE_TAP -> {
                 val current = hudState.value
-                if (current.photoThumbnails.isNotEmpty()) {
-                    hudState.value = current.copy(
-                        focusedArea = ChatFocusArea.PHOTOS,
-                        selectedPhotoIndex = 0
-                    )
-                } else if (current.showInputStaging) {
+                if (current.showInputStaging || current.photoThumbnails.isNotEmpty()) {
+                    val sendIndex = current.photoThumbnails.size + 1
                     hudState.value = current.copy(
                         focusedArea = ChatFocusArea.INPUT,
-                        inputActionIndex = 0
+                        inputActionIndex = sendIndex
                     )
                 } else {
                     hudState.value = current.copy(
@@ -470,90 +467,27 @@ class HudActivity : ComponentActivity() {
         }
     }
 
-    // PHOTOS strip gestures
-    private fun handlePhotosGesture(gesture: Gesture) {
-        val current = hudState.value
-        val count = current.photoThumbnails.size
-
-        when (gesture) {
-            Gesture.SWIPE_FORWARD -> {
-                if (current.selectedPhotoIndex == 0) {
-                    hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
-                } else {
-                    hudState.value = current.copy(selectedPhotoIndex = current.selectedPhotoIndex - 1)
-                }
-            }
-            Gesture.SWIPE_BACKWARD -> {
-                if (current.selectedPhotoIndex >= count - 1) {
-                    // Push through: PHOTOS → INPUT (if staging) → MENU
-                    if (current.showInputStaging) {
-                        hudState.value = current.copy(
-                            focusedArea = ChatFocusArea.INPUT,
-                            inputActionIndex = 0
-                        )
-                    } else {
-                        hudState.value = current.copy(
-                            focusedArea = ChatFocusArea.MENU,
-                            menuBarIndex = 0
-                        )
-                    }
-                } else {
-                    hudState.value = current.copy(selectedPhotoIndex = current.selectedPhotoIndex + 1)
-                }
-            }
-            Gesture.TAP -> {
-                // Remove selected photo
-                val index = current.selectedPhotoIndex
-                if (index in current.photoThumbnails.indices) {
-                    val newThumbnails = current.photoThumbnails.toMutableList().apply { removeAt(index) }
-                    val newIndex = minOf(index, newThumbnails.size - 1).coerceAtLeast(0)
-                    if (newThumbnails.isEmpty()) {
-                        hudState.value = current.copy(
-                            photoThumbnails = emptyList(),
-                            selectedPhotoIndex = 0,
-                            focusedArea = ChatFocusArea.MENU,
-                            menuBarIndex = 0
-                        )
-                    } else {
-                        hudState.value = current.copy(
-                            photoThumbnails = newThumbnails,
-                            selectedPhotoIndex = newIndex
-                        )
-                    }
-                    // Tell phone to remove photo at this index
-                    phoneConnection.sendToPhone("""{"type":"remove_photo","index":$index}""")
-                }
-            }
-            Gesture.DOUBLE_TAP -> {
-                hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
-            }
-            Gesture.LONG_PRESS -> startVoice()
-        }
-    }
-
     // INPUT staging area gestures
+    // Combined row: [photo0..N-1, CLEAR, SEND]
+    // inputActionIndex maps into this combined row.
     private fun handleInputGesture(gesture: Gesture) {
         val current = hudState.value
-        val items = InputActionItem.entries
+        val photoCount = current.photoThumbnails.size
+        val clearIndex = photoCount       // CLEAR is right after photos
+        val sendIndex = photoCount + 1    // SEND is rightmost
+        val totalItems = photoCount + 2   // photos + CLEAR + SEND
 
         when (gesture) {
             Gesture.SWIPE_FORWARD -> {
                 if (current.inputActionIndex == 0) {
-                    // Push through: INPUT → PHOTOS (if any) → CONTENT
-                    if (current.photoThumbnails.isNotEmpty()) {
-                        hudState.value = current.copy(
-                            focusedArea = ChatFocusArea.PHOTOS,
-                            selectedPhotoIndex = current.photoThumbnails.size - 1
-                        )
-                    } else {
-                        hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
-                    }
+                    // Push through: INPUT → CONTENT
+                    hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
                 } else {
                     hudState.value = current.copy(inputActionIndex = current.inputActionIndex - 1)
                 }
             }
             Gesture.SWIPE_BACKWARD -> {
-                if (current.inputActionIndex >= items.size - 1) {
+                if (current.inputActionIndex >= totalItems - 1) {
                     // Push through: INPUT → MENU
                     hudState.value = current.copy(
                         focusedArea = ChatFocusArea.MENU,
@@ -564,29 +498,53 @@ class HudActivity : ComponentActivity() {
                 }
             }
             Gesture.TAP -> {
-                val selectedItem = items[current.inputActionIndex]
-                when (selectedItem) {
-                    InputActionItem.SEND -> {
-                        // Submit the staged text and dismiss
-                        val text = current.stagingText.trim()
-                        if (text.isNotEmpty()) {
-                            hudState.value = current.copy(inputText = text)
-                            submitInput()
+                val idx = current.inputActionIndex
+                when {
+                    idx < photoCount -> {
+                        // Tap on photo — remove it
+                        val newThumbnails = current.photoThumbnails.toMutableList().apply { removeAt(idx) }
+                        val newPhotoCount = newThumbnails.size
+                        // After removal, keep focus on same position but clamp
+                        val newIndex = if (newThumbnails.isEmpty() && !current.showInputStaging) {
+                            // No photos left and no staging text — go to MENU
+                            hudState.value = current.copy(
+                                photoThumbnails = emptyList(),
+                                inputActionIndex = 0,
+                                focusedArea = ChatFocusArea.MENU,
+                                menuBarIndex = 0
+                            )
+                            phoneConnection.sendToPhone("""{"type":"remove_photo","index":$idx}""")
+                            return
+                        } else {
+                            // Move focus to Send (new last position)
+                            newPhotoCount + 1
                         }
-                        // Dismiss staging area (submitInput resets focusedArea to CONTENT)
-                        hudState.value = hudState.value.copy(
-                            showInputStaging = false,
-                            stagingText = "",
-                            inputActionIndex = 0
+                        hudState.value = current.copy(
+                            photoThumbnails = newThumbnails,
+                            inputActionIndex = newIndex
                         )
+                        phoneConnection.sendToPhone("""{"type":"remove_photo","index":$idx}""")
                     }
-                    InputActionItem.CLEAR -> {
+                    idx == clearIndex -> {
                         // Clear staged text and dismiss
                         hudState.value = current.copy(
                             showInputStaging = false,
                             stagingText = "",
                             inputActionIndex = 0,
                             focusedArea = ChatFocusArea.CONTENT
+                        )
+                    }
+                    idx == sendIndex -> {
+                        // Submit the staged text and dismiss
+                        val text = current.stagingText.trim()
+                        if (text.isNotEmpty()) {
+                            hudState.value = current.copy(inputText = text)
+                            submitInput()
+                        }
+                        hudState.value = hudState.value.copy(
+                            showInputStaging = false,
+                            stagingText = "",
+                            inputActionIndex = 0
                         )
                     }
                 }
@@ -607,16 +565,13 @@ class HudActivity : ComponentActivity() {
         when (gesture) {
             Gesture.SWIPE_FORWARD -> {
                 if (current.menuBarIndex == 0) {
-                    // Push through: MENU → INPUT (if staging) → PHOTOS (if any) → CONTENT
-                    if (current.showInputStaging) {
+                    // Push through: MENU → INPUT (if staging or photos) → CONTENT
+                    if (current.showInputStaging || current.photoThumbnails.isNotEmpty()) {
+                        // Focus on Send (rightmost in combined row)
+                        val sendIndex = current.photoThumbnails.size + 1
                         hudState.value = current.copy(
                             focusedArea = ChatFocusArea.INPUT,
-                            inputActionIndex = InputActionItem.entries.size - 1
-                        )
-                    } else if (current.photoThumbnails.isNotEmpty()) {
-                        hudState.value = current.copy(
-                            focusedArea = ChatFocusArea.PHOTOS,
-                            selectedPhotoIndex = current.photoThumbnails.size - 1
+                            inputActionIndex = sendIndex
                         )
                     } else {
                         hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
@@ -649,7 +604,9 @@ class HudActivity : ComponentActivity() {
 
         when (item) {
             MenuBarItem.PHOTO -> {
-                if (DEBUG_MODE) {
+                if (current.photoThumbnails.size >= MAX_PHOTOS) {
+                    Log.w(GlassesApp.TAG, "Max $MAX_PHOTOS photos reached, ignoring photo request")
+                } else if (DEBUG_MODE) {
                     if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                         cameraCapture.capture()
                     } else {
@@ -722,7 +679,6 @@ class HudActivity : ComponentActivity() {
             messages = messages,
             inputText = "",
             photoThumbnails = emptyList(),
-            selectedPhotoIndex = 0,
             focusedArea = ChatFocusArea.CONTENT,
             scrollPosition = messages.size - 1,
             scrollTrigger = current.scrollTrigger + 1,
@@ -913,7 +869,7 @@ class HudActivity : ComponentActivity() {
             stagingText = newStagingText,
             showInputStaging = true,
             focusedArea = ChatFocusArea.INPUT,
-            inputActionIndex = 0,
+            inputActionIndex = current.photoThumbnails.size + 1,  // Default to Send
             scrollTrigger = current.scrollTrigger + 1
         )
     }
@@ -1036,8 +992,7 @@ class HudActivity : ComponentActivity() {
                             // Clear any lingering photos (belt-and-suspenders)
                             if (current.photoThumbnails.isNotEmpty()) {
                                 hudState.value = current.copy(
-                                    photoThumbnails = emptyList(),
-                                    selectedPhotoIndex = 0
+                                    photoThumbnails = emptyList()
                                 )
                             }
                             return
@@ -1056,7 +1011,6 @@ class HudActivity : ComponentActivity() {
                             messages = messages,
                             agentState = AgentState.IDLE,
                             photoThumbnails = emptyList(),
-                            selectedPhotoIndex = 0,
                             scrollPosition = messages.size - 1,
                             scrollTrigger = current.scrollTrigger + 1
                         )
@@ -1280,13 +1234,17 @@ class HudActivity : ComponentActivity() {
                     if (status == "captured") {
                         val thumbnailBase64 = msg.optString("thumbnail", "")
                         if (thumbnailBase64.isNotEmpty()) {
-                            val bytes = Base64.decode(thumbnailBase64, Base64.DEFAULT)
-                            val thumbnail = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                             val current = hudState.value
-                            hudState.value = current.copy(
-                                photoThumbnails = current.photoThumbnails + thumbnail
-                            )
-                            Log.d(GlassesApp.TAG, "Photo captured, thumbnail added (total: ${current.photoThumbnails.size + 1})")
+                            if (current.photoThumbnails.size >= MAX_PHOTOS) {
+                                Log.w(GlassesApp.TAG, "Max $MAX_PHOTOS photos reached, ignoring photo_result")
+                            } else {
+                                val bytes = Base64.decode(thumbnailBase64, Base64.DEFAULT)
+                                val thumbnail = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                hudState.value = current.copy(
+                                    photoThumbnails = current.photoThumbnails + thumbnail
+                                )
+                                Log.d(GlassesApp.TAG, "Photo captured, thumbnail added (total: ${current.photoThumbnails.size + 1})")
+                            }
                         }
                     } else {
                         Log.e(GlassesApp.TAG, "Photo capture failed: ${msg.optString("message", "")}")
@@ -1298,16 +1256,17 @@ class HudActivity : ComponentActivity() {
                     val current = hudState.value
                     if (all) {
                         hudState.value = current.copy(
-                            photoThumbnails = emptyList(),
-                            selectedPhotoIndex = 0
+                            photoThumbnails = emptyList()
                         )
                     } else {
                         val index = msg.optInt("index", -1)
                         if (index in current.photoThumbnails.indices) {
                             val updated = current.photoThumbnails.toMutableList().apply { removeAt(index) }
+                            // Clamp inputActionIndex if it was pointing at a photo
+                            val maxIndex = updated.size + 1  // Send index
                             hudState.value = current.copy(
                                 photoThumbnails = updated,
-                                selectedPhotoIndex = minOf(current.selectedPhotoIndex, updated.size - 1).coerceAtLeast(0)
+                                inputActionIndex = minOf(current.inputActionIndex, maxIndex)
                             )
                         }
                     }

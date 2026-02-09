@@ -88,6 +88,13 @@ class HudActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Restore saved HUD preferences (font size, screen position)
+        val (savedPosition, savedDisplaySize) = loadHudPreferences()
+        hudState.value = hudState.value.copy(
+            hudPosition = savedPosition,
+            displaySize = savedDisplaySize
+        )
+
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -1317,6 +1324,7 @@ class HudActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        saveHudPreferences()
         cameraCapture.cleanup()
         voiceHandler.cleanup()
         phoneConnection.stop()
@@ -1326,5 +1334,33 @@ class HudActivity : ComponentActivity() {
         // from working correctly. The CXR system service maintains the BT
         // connection independently, so the next launch can re-establish it.
         android.os.Process.killProcess(android.os.Process.myPid())
+    }
+
+    private fun saveHudPreferences() {
+        try {
+            val state = hudState.value
+            getSharedPreferences("hud_prefs", MODE_PRIVATE).edit()
+                .putString("hudPosition", state.hudPosition.name)
+                .putString("displaySize", state.displaySize.name)
+                .commit()
+        } catch (e: Exception) {
+            Log.w(GlassesApp.TAG, "Failed to save HUD preferences", e)
+        }
+    }
+
+    private fun loadHudPreferences(): Pair<HudPosition, HudDisplaySize> {
+        try {
+            val prefs = getSharedPreferences("hud_prefs", MODE_PRIVATE)
+            val position = prefs.getString("hudPosition", null)
+                ?.let { name -> HudPosition.entries.find { it.name == name } }
+                ?: HudPosition.FULL
+            val displaySize = prefs.getString("displaySize", null)
+                ?.let { name -> HudDisplaySize.entries.find { it.name == name } }
+                ?: HudDisplaySize.NORMAL
+            return Pair(position, displaySize)
+        } catch (e: Exception) {
+            Log.w(GlassesApp.TAG, "Failed to load HUD preferences, using defaults", e)
+            return Pair(HudPosition.FULL, HudDisplaySize.NORMAL)
+        }
     }
 }

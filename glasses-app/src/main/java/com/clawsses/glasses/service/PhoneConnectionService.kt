@@ -231,6 +231,15 @@ class PhoneConnectionService(
      */
     fun getConnectedDevice(): Pair<String?, String?> = Pair(connectedDeviceName, connectedDeviceMac)
 
+    /**
+     * Soft stop: release our bridge/client references and reset local state, but do NOT
+     * call disconnectCXRDevice(). The CXR system service manages the Bluetooth connection
+     * independently — calling disconnectCXRDevice() tears it down and only the phone can
+     * re-initiate it, so the glasses would be stuck "disconnected" on the next open.
+     *
+     * For debug (WebSocket) mode we do close the socket because startDebugConnection()
+     * can always open a new one to the still-running phone server.
+     */
     fun stop() {
         isRunning = false
         isConnected = false
@@ -240,26 +249,22 @@ class PhoneConnectionService(
             debugClient?.disconnect()
             debugClient = null
         } else {
-            try {
-                cxrBridge?.disconnectCXRDevice()
-                cxrBridge = null
-            } catch (e: Exception) {
-                Log.e(TAG, "Error stopping CXR bridge", e)
-            }
+            // Drop our reference without disconnecting BT — the system service keeps it alive.
+            cxrBridge = null
         }
 
         _connectionState.value = ConnectionState.Disconnected
-        Log.d(TAG, "Phone connection service stopped")
+        Log.d(TAG, "Phone connection service stopped (BT preserved)")
     }
 
     /**
      * Restart the connection after it was stopped.
      *
      * Root cause fix: When the glasses app is backgrounded then foregrounded (or killed
-     * and relaunched), onDestroy calls stop() which sets isRunning=false and cancels the
-     * coroutine scope. On the next onStart, we need to create a fresh scope and
-     * re-initialize the CXR bridge (or debug WebSocket) so the onConnected callback fires
-     * again for the existing Bluetooth connection.
+     * and relaunched), we need to create a fresh CXRServiceBridge and re-register the
+     * StatusListener + message subscription. The CXR system service still holds the
+     * Bluetooth connection to the phone, so the new bridge's onConnected callback fires
+     * once it re-attaches to the existing connection.
      */
     fun restart() {
         if (isRunning) {

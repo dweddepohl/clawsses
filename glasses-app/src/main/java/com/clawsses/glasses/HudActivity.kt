@@ -182,9 +182,8 @@ class HudActivity : ComponentActivity() {
             }
         }
 
-        lifecycleScope.launch {
-            phoneConnection.startListening()
-        }
+        // Connection is started in onStart() so it reliably reconnects on every
+        // foreground transition, not just the first launch. See onStart()/onStop().
 
         // Start standby idle timer
         resetIdleTimer()
@@ -202,6 +201,21 @@ class HudActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        phoneConnection.stop()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Reconnect every time the activity becomes visible. On first launch, onStop()
+        // hasn't been called yet so restart() calls stop() (a no-op) then startListening().
+        // On subsequent returns (foreground after background, relaunch after kill) this
+        // re-establishes the CXR bridge or debug WebSocket so the glasses reliably
+        // show "connected" instead of staying stuck on "disconnected".
+        phoneConnection.restart()
     }
 
     override fun onTouchEvent(event: MotionEvent?): Boolean {
@@ -1384,6 +1398,6 @@ class HudActivity : ComponentActivity() {
         super.onDestroy()
         cameraCapture.cleanup()
         voiceHandler.cleanup()
-        phoneConnection.stop()
+        // phoneConnection.stop() is handled by onStop(), which always runs before onDestroy
     }
 }

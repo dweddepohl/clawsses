@@ -31,7 +31,7 @@ class PhoneConnectionService(
 
     private var cxrBridge: CXRServiceBridge? = null
     private var debugClient: DebugPhoneClient? = null
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var isRunning = false
     private var isConnected = false
     private var connectedDeviceName: String? = null
@@ -250,5 +250,24 @@ class PhoneConnectionService(
 
         _connectionState.value = ConnectionState.Disconnected
         Log.d(TAG, "Phone connection service stopped")
+    }
+
+    /**
+     * Restart the connection after it was stopped.
+     *
+     * Root cause fix: When the glasses app is backgrounded then foregrounded (or killed
+     * and relaunched), onDestroy calls stop() which sets isRunning=false and cancels the
+     * coroutine scope. On the next onStart, we need to create a fresh scope and
+     * re-initialize the CXR bridge (or debug WebSocket) so the onConnected callback fires
+     * again for the existing Bluetooth connection.
+     */
+    fun restart() {
+        if (isRunning) {
+            Log.d(TAG, "Already running, stopping first before restart")
+            stop()
+        }
+        // Create a fresh coroutine scope since stop() cancelled the previous one
+        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        startListening()
     }
 }

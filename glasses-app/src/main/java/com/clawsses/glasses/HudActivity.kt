@@ -194,7 +194,10 @@ class HudActivity : ComponentActivity() {
         // Start standby idle timer
         resetIdleTimer()
 
-        // Observe connection state and request current state when phone connects
+        // Observe connection state and request current state when phone connects.
+        // This fires on first connect AND on reconnect (e.g. after glasses app restart,
+        // the phone auto-reconnects and the bridge fires onConnected or we detect
+        // the connection via message receipt / ARTC status).
         lifecycleScope.launch {
             phoneConnection.connectionState.collect { state ->
                 val isConnected = state is PhoneConnectionService.ConnectionState.Connected

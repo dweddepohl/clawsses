@@ -122,6 +122,13 @@ class PhoneConnectionService(
 
             override fun onARTCStatus(latency: Float, connected: Boolean) {
                 Log.d(TAG, "ARTC status: latency=$latency, connected=$connected")
+                // ARTC status with connected=true is another signal that the phone
+                // is connected, even if onConnected hasn't fired (e.g. after app restart).
+                if (connected && !isConnected) {
+                    Log.i(TAG, "Connection detected via ARTC status")
+                    isConnected = true
+                    _connectionState.value = ConnectionState.Connected("Phone (detected via ARTC)")
+                }
             }
 
             override fun onRokidAccountChanged(account: String?) {
@@ -150,6 +157,13 @@ class PhoneConnectionService(
                     else -> ""
                 }
                 if (message.isNotEmpty()) {
+                    // If we receive a message but haven't seen onConnected yet,
+                    // the phone reconnected and the BT link is alive. Mark connected.
+                    if (!isConnected) {
+                        Log.i(TAG, "Connection detected via message receipt (onConnected may not have fired)")
+                        isConnected = true
+                        _connectionState.value = ConnectionState.Connected("Phone (detected via message)")
+                    }
                     Log.d(TAG, "Message content (${message.length} chars): ${message.take(100)}...")
                     onMessageReceived(message)
                 } else {
@@ -231,6 +245,15 @@ class PhoneConnectionService(
      */
     fun getConnectedDevice(): Pair<String?, String?> = Pair(connectedDeviceName, connectedDeviceMac)
 
+    /**
+     * Soft stop: release our bridge/client references and reset local state, but do NOT
+     * call disconnectCXRDevice(). The CXR system service manages the Bluetooth connection
+     * independently — calling disconnectCXRDevice() tears it down and only the phone can
+     * re-initiate it, so the glasses would be stuck "disconnected" on the next open.
+     *
+     * For debug (WebSocket) mode we do close the socket because startDebugConnection()
+     * can always open a new one to the still-running phone server.
+     */
     fun stop() {
         isRunning = false
         isConnected = false
@@ -240,15 +263,12 @@ class PhoneConnectionService(
             debugClient?.disconnect()
             debugClient = null
         } else {
-            try {
-                cxrBridge?.disconnectCXRDevice()
-                cxrBridge = null
-            } catch (e: Exception) {
-                Log.e(TAG, "Error stopping CXR bridge", e)
-            }
+            // Drop our reference without disconnecting BT — the system service keeps it alive.
+            cxrBridge = null
         }
 
         _connectionState.value = ConnectionState.Disconnected
-        Log.d(TAG, "Phone connection service stopped")
+        Log.d(TAG, "Phone connection service stopped (BT preserved)")
     }
+
 }

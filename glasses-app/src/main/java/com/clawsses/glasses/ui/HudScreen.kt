@@ -84,7 +84,7 @@ enum class InputActionItem(val icon: String, val label: String) {
 }
 
 /** Maximum number of photos that can be attached. */
-const val MAX_PHOTOS = 3
+const val MAX_PHOTOS = 4
 
 /**
  * Agent response states
@@ -776,7 +776,9 @@ private fun PhotoThumbnailRow(
  * Combined input staging area.
  *
  * Layout (single line below text):
- *   [Photo1] [Photo2] [Photo3]  ←spacer→  [Clear] [Send]
+ *   [Photo1] [Photo2] ... [Photo4]  ←spacer→  [Clear] [Send]
+ *
+ * Clear and Send buttons are only shown when there is staged input (text or photos).
  *
  * `selectedIndex` maps into: photos (0..N-1), then CLEAR (N), SEND (N+1).
  */
@@ -794,6 +796,7 @@ private fun InputStagingArea(
 ) {
     val commandFontSize = 8.sp  // Match menu bar fixed size
     val photoCount = photos.size
+    val hasContent = text.isNotEmpty() || photos.isNotEmpty()
 
     Column(
         modifier = modifier
@@ -874,79 +877,81 @@ private fun InputStagingArea(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            if (hasContent) {
+                Spacer(modifier = Modifier.weight(1f))
 
-            // Clear button
-            val clearIndex = photoCount  // index right after photos
-            val clearSelected = selectedIndex == clearIndex && isFocused
-            Box(
-                modifier = Modifier
-                    .background(
-                        if (clearSelected) HudColors.green.copy(alpha = 0.3f) else Color.Transparent,
-                        RoundedCornerShape(4.dp)
-                    )
-                    .border(
-                        width = if (clearSelected) 1.dp else 0.dp,
-                        color = if (clearSelected) HudColors.green else Color.Transparent,
-                        shape = RoundedCornerShape(4.dp)
-                    )
-                    .padding(horizontal = 10.dp, vertical = 3.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Clear button
+                val clearIndex = photoCount  // index right after photos
+                val clearSelected = selectedIndex == clearIndex && isFocused
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (clearSelected) HudColors.green.copy(alpha = 0.3f) else Color.Transparent,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .border(
+                            width = if (clearSelected) 1.dp else 0.dp,
+                            color = if (clearSelected) HudColors.green else Color.Transparent,
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 3.dp)
                 ) {
-                    Text(
-                        text = InputActionItem.CLEAR.icon,
-                        color = if (clearSelected) HudColors.green else HudColors.primaryText,
-                        fontSize = (commandFontSize.value + 2).sp,
-                        fontFamily = fontFamily
-                    )
-                    Text(
-                        text = InputActionItem.CLEAR.label,
-                        color = if (clearSelected) HudColors.green else HudColors.dimText,
-                        fontSize = commandFontSize,
-                        fontFamily = fontFamily,
-                        fontWeight = if (clearSelected) FontWeight.Bold else FontWeight.Normal
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = InputActionItem.CLEAR.icon,
+                            color = if (clearSelected) HudColors.green else HudColors.primaryText,
+                            fontSize = (commandFontSize.value + 2).sp,
+                            fontFamily = fontFamily
+                        )
+                        Text(
+                            text = InputActionItem.CLEAR.label,
+                            color = if (clearSelected) HudColors.green else HudColors.dimText,
+                            fontSize = commandFontSize,
+                            fontFamily = fontFamily,
+                            fontWeight = if (clearSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(4.dp))
 
-            // Send button
-            val sendIndex = photoCount + 1  // last item
-            val sendSelected = selectedIndex == sendIndex && isFocused
-            Box(
-                modifier = Modifier
-                    .background(
-                        if (sendSelected) HudColors.green.copy(alpha = 0.3f) else Color.Transparent,
-                        RoundedCornerShape(4.dp)
-                    )
-                    .border(
-                        width = if (sendSelected) 1.dp else 0.dp,
-                        color = if (sendSelected) HudColors.green else Color.Transparent,
-                        shape = RoundedCornerShape(4.dp)
-                    )
-                    .padding(horizontal = 10.dp, vertical = 3.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Send button
+                val sendIndex = photoCount + 1  // last item
+                val sendSelected = selectedIndex == sendIndex && isFocused
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (sendSelected) HudColors.green.copy(alpha = 0.3f) else Color.Transparent,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .border(
+                            width = if (sendSelected) 1.dp else 0.dp,
+                            color = if (sendSelected) HudColors.green else Color.Transparent,
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 3.dp)
                 ) {
-                    Text(
-                        text = InputActionItem.SEND.icon,
-                        color = if (sendSelected) HudColors.green else HudColors.primaryText,
-                        fontSize = (commandFontSize.value + 2).sp,
-                        fontFamily = fontFamily
-                    )
-                    Text(
-                        text = InputActionItem.SEND.label,
-                        color = if (sendSelected) HudColors.green else HudColors.dimText,
-                        fontSize = commandFontSize,
-                        fontFamily = fontFamily,
-                        fontWeight = if (sendSelected) FontWeight.Bold else FontWeight.Normal
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = InputActionItem.SEND.icon,
+                            color = if (sendSelected) HudColors.green else HudColors.primaryText,
+                            fontSize = (commandFontSize.value + 2).sp,
+                            fontFamily = fontFamily
+                        )
+                        Text(
+                            text = InputActionItem.SEND.label,
+                            color = if (sendSelected) HudColors.green else HudColors.dimText,
+                            fontSize = commandFontSize,
+                            fontFamily = fontFamily,
+                            fontWeight = if (sendSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 }
             }
         }

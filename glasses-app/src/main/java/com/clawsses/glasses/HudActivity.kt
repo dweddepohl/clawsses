@@ -56,6 +56,9 @@ class HudActivity : ComponentActivity() {
         const val DEBUG_PORT = 8081
         private const val CAMERA_PERMISSION_REQUEST = 1001
 
+        /** Sentinel key for the "New Session" entry in the session picker. */
+        const val NEW_SESSION_KEY = "__new_session__"
+
         private fun isEmulator(): Boolean {
             return (Build.FINGERPRINT.contains("generic")
                     || Build.FINGERPRINT.contains("emulator")
@@ -649,7 +652,11 @@ class HudActivity : ComponentActivity() {
             Gesture.TAP -> {
                 if (totalOptions > 0) {
                     val selected = current.availableSessions[current.selectedSessionIndex]
-                    switchToSession(selected.key)
+                    if (selected.key == NEW_SESSION_KEY) {
+                        createNewSession()
+                    } else {
+                        switchToSession(selected.key)
+                    }
                 }
                 hudState.value = current.copy(showSessionPicker = false)
             }
@@ -658,6 +665,10 @@ class HudActivity : ComponentActivity() {
             }
             Gesture.LONG_PRESS -> {}
         }
+    }
+
+    private fun createNewSession() {
+        phoneConnection.sendToPhone("""{"type":"create_session"}""")
     }
 
     // ============== More Menu Gestures ==============
@@ -1131,12 +1142,23 @@ class HudActivity : ComponentActivity() {
                         }
                     }
 
+                    // Insert "New Session" as the first option
+                    val sessionsWithNew = listOf(
+                        SessionPickerInfo(
+                            key = NEW_SESSION_KEY,
+                            name = "+ New Session"
+                        )
+                    ) + sessions
+
                     val current = hudState.value
+                    // Default selection to the current session (offset by 1 for the New Session entry)
+                    val currentIndex = sessionsWithNew.indexOfFirst { it.key == currentSessionKey }
+                        .coerceAtLeast(0)
                     hudState.value = current.copy(
                         showSessionPicker = true,
-                        availableSessions = sessions,
+                        availableSessions = sessionsWithNew,
                         currentSessionKey = currentSessionKey.ifEmpty { current.currentSessionKey },
-                        selectedSessionIndex = sessions.indexOfFirst { it.key == currentSessionKey }.coerceAtLeast(0)
+                        selectedSessionIndex = currentIndex
                     )
 
                     Log.d(GlassesApp.TAG, "Sessions: ${sessions.size}, current: $currentSessionKey")

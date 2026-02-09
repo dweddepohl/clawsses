@@ -66,6 +66,7 @@ object OpenClawMethods {
     const val CHANNEL_SEND = "channel.send"
     const val CHANNEL_LIST = "channel.list"
     const val SESSION_CREATE = "session.create"
+    const val SESSION_RESET = "sessions.reset"
     const val SESSION_LIST = "sessions.list"
     const val SESSION_RUN = "session.run"
     const val CHAT_HISTORY = "chat.history"

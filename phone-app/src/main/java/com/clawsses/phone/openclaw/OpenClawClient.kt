@@ -272,6 +272,37 @@ class OpenClawClient(
     }
 
     /**
+     * Create a new session by resetting the current session key via sessions.reset.
+     * The server generates a fresh session ID while preserving settings.
+     * After reset, reloads history (which will be empty) and notifies glasses.
+     */
+    fun createSession() {
+        scope.launch {
+            try {
+                val key = _currentSessionKey.value ?: "main"
+                Log.d(TAG, "Creating new session (resetting key=$key)")
+                val params = JsonObject().apply {
+                    addProperty("key", key)
+                }
+                val response = sendRequest(OpenClawMethods.SESSION_RESET, params)
+                if (response.ok) {
+                    val newKey = response.payload?.get("key")?.asString ?: key
+                    Log.i(TAG, "Session reset ok, key=$newKey")
+                    _currentSessionKey.value = newKey
+                    _chatMessages.value = emptyList()
+                    notifyConnectionUpdate(true, newKey)
+                    onChatHistory?.invoke(emptyList())
+                } else {
+                    val errorMsg = response.error?.get("message")?.asString ?: "Session reset failed"
+                    Log.e(TAG, "Session reset failed: $errorMsg")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating session", e)
+            }
+        }
+    }
+
+    /**
      * Switch to a different session by key.
      */
     fun switchSession(sessionKey: String) {

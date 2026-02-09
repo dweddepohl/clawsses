@@ -1073,6 +1073,7 @@ private fun SessionPickerOverlay(
                     itemsIndexed(sessions) { index, session ->
                         val isSelected = index == selectedIndex
                         val isCurrent = session.key == currentSessionKey
+                        val isNewSession = session.key == "__new_session__"
 
                         Row(
                             modifier = Modifier
@@ -1092,16 +1093,21 @@ private fun SessionPickerOverlay(
                             ) {
                                 Text(
                                     text = if (isSelected) "\u25B6" else " ",
-                                    color = HudColors.green,
+                                    color = if (isNewSession) HudColors.cyan else HudColors.green,
                                     fontSize = 14.sp,
                                     fontFamily = fontFamily
                                 )
                                 Text(
                                     text = session.name,
-                                    color = if (isSelected) HudColors.green else HudColors.primaryText,
+                                    color = when {
+                                        isNewSession && isSelected -> HudColors.cyan
+                                        isNewSession -> HudColors.cyan
+                                        isSelected -> HudColors.green
+                                        else -> HudColors.primaryText
+                                    },
                                     fontSize = 14.sp,
                                     fontFamily = fontFamily,
-                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                    fontWeight = if (isCurrent || isNewSession) FontWeight.Bold else FontWeight.Normal,
                                     maxLines = 1
                                 )
                             }

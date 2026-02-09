@@ -274,6 +274,10 @@ fun MainScreen() {
                             openClawClient.switchSession(sessionKey)
                         }
                     }
+                    "create_session" -> {
+                        android.util.Log.d("MainScreen", "Creating new session from glasses")
+                        openClawClient.createSession()
+                    }
                     "slash_command" -> {
                         val command = json.optString("command", "")
                         android.util.Log.d("MainScreen", "Slash command from glasses: $command")

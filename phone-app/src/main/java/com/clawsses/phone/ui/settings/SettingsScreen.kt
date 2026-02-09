@@ -47,6 +47,7 @@ fun SettingsScreen(
     onClearSn: () -> Unit,
     hasCachedSn: Boolean,
     cachedSn: String?,
+    cachedDeviceName: String?,
     // Software Update
     installState: ApkInstaller.InstallState,
     sdkConnected: Boolean,
@@ -106,6 +107,7 @@ fun SettingsScreen(
                     onClearSn = onClearSn,
                     hasCachedSn = hasCachedSn,
                     cachedSn = cachedSn,
+                    cachedDeviceName = cachedDeviceName,
                 )
             }
 

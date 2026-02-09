@@ -615,6 +615,7 @@ fun MainScreen() {
     val wifiP2PConnected by glassesManager.wifiP2PConnected.collectAsState()
     var hasCachedSn by remember { mutableStateOf(RokidSdkManager.hasCachedSn()) }
     var cachedSn by remember { mutableStateOf(RokidSdkManager.getCachedSn()) }
+    var cachedDeviceName by remember { mutableStateOf(RokidSdkManager.getCachedDeviceName()) }
     val sdkConnected = glassesState is GlassesConnectionManager.ConnectionState.Connected && !debugModeEnabled
 
     // Settings screen (full-screen overlay with slide-up animation)
@@ -654,9 +655,11 @@ fun MainScreen() {
                 RokidSdkManager.clearCachedSn()
                 hasCachedSn = false
                 cachedSn = null
+                cachedDeviceName = null
             },
             hasCachedSn = hasCachedSn,
             cachedSn = cachedSn,
+            cachedDeviceName = cachedDeviceName,
             // Software Update
             installState = installState,
             sdkConnected = sdkConnected,

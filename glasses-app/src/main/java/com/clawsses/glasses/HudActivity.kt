@@ -386,11 +386,15 @@ class HudActivity : ComponentActivity() {
                 if (current.scrollPosition >= maxScroll && current.isScrolledToEnd) {
                     // Push through: CONTENT → INPUT (if staging or photos) → MENU
                     if (current.showInputStaging || current.photoThumbnails.isNotEmpty()) {
-                        // Default focus on Send (last item in combined row)
-                        val sendIndex = current.photoThumbnails.size + 1
+                        // Default focus on last visible item in combined row
+                        val lastIndex = if (current.stagingText.isNotEmpty()) {
+                            current.photoThumbnails.size + 1  // Send button
+                        } else {
+                            maxOf(0, current.photoThumbnails.size - 1)  // last photo
+                        }
                         hudState.value = current.copy(
                             focusedArea = ChatFocusArea.INPUT,
-                            inputActionIndex = sendIndex
+                            inputActionIndex = lastIndex
                         )
                     } else {
                         hudState.value = current.copy(
@@ -408,10 +412,14 @@ class HudActivity : ComponentActivity() {
             Gesture.DOUBLE_TAP -> {
                 val current = hudState.value
                 if (current.showInputStaging || current.photoThumbnails.isNotEmpty()) {
-                    val sendIndex = current.photoThumbnails.size + 1
+                    val lastIndex = if (current.stagingText.isNotEmpty()) {
+                        current.photoThumbnails.size + 1  // Send button
+                    } else {
+                        maxOf(0, current.photoThumbnails.size - 1)  // last photo
+                    }
                     hudState.value = current.copy(
                         focusedArea = ChatFocusArea.INPUT,
-                        inputActionIndex = sendIndex
+                        inputActionIndex = lastIndex
                     )
                 } else {
                     hudState.value = current.copy(
@@ -425,14 +433,16 @@ class HudActivity : ComponentActivity() {
     }
 
     // INPUT staging area gestures
-    // Combined row: [photo0..N-1, CLEAR, SEND]
+    // Combined row: [photo0..N-1, CLEAR, SEND] when text is staged
+    // Combined row: [photo0..N-1] when only photos (buttons hidden)
     // inputActionIndex maps into this combined row.
     private fun handleInputGesture(gesture: Gesture) {
         val current = hudState.value
         val photoCount = current.photoThumbnails.size
+        val hasText = current.stagingText.isNotEmpty()
         val clearIndex = photoCount       // CLEAR is right after photos
         val sendIndex = photoCount + 1    // SEND is rightmost
-        val totalItems = photoCount + 2   // photos + CLEAR + SEND
+        val totalItems = if (hasText) photoCount + 2 else photoCount  // buttons only when text staged
 
         when (gesture) {
             Gesture.SWIPE_FORWARD -> {
@@ -472,9 +482,12 @@ class HudActivity : ComponentActivity() {
                             )
                             phoneConnection.sendToPhone("""{"type":"remove_photo","index":$idx}""")
                             return
-                        } else {
-                            // Move focus to Send (new last position)
+                        } else if (hasText) {
+                            // Text staged: buttons visible, move focus to Send
                             newPhotoCount + 1
+                        } else {
+                            // No text: buttons hidden, clamp to last photo
+                            maxOf(0, newPhotoCount - 1)
                         }
                         hudState.value = current.copy(
                             photoThumbnails = newThumbnails,
@@ -524,11 +537,15 @@ class HudActivity : ComponentActivity() {
                 if (current.menuBarIndex == 0) {
                     // Push through: MENU → INPUT (if staging or photos) → CONTENT
                     if (current.showInputStaging || current.photoThumbnails.isNotEmpty()) {
-                        // Focus on Send (rightmost in combined row)
-                        val sendIndex = current.photoThumbnails.size + 1
+                        // Focus on last visible item in combined row
+                        val lastIndex = if (current.stagingText.isNotEmpty()) {
+                            current.photoThumbnails.size + 1  // Send button
+                        } else {
+                            maxOf(0, current.photoThumbnails.size - 1)  // last photo
+                        }
                         hudState.value = current.copy(
                             focusedArea = ChatFocusArea.INPUT,
-                            inputActionIndex = sendIndex
+                            inputActionIndex = lastIndex
                         )
                     } else {
                         hudState.value = current.copy(focusedArea = ChatFocusArea.CONTENT)
@@ -1245,8 +1262,12 @@ class HudActivity : ComponentActivity() {
                         val index = msg.optInt("index", -1)
                         if (index in current.photoThumbnails.indices) {
                             val updated = current.photoThumbnails.toMutableList().apply { removeAt(index) }
-                            // Clamp inputActionIndex if it was pointing at a photo
-                            val maxIndex = updated.size + 1  // Send index
+                            // Clamp inputActionIndex: buttons only exist when text is staged
+                            val maxIndex = if (current.stagingText.isNotEmpty()) {
+                                updated.size + 1  // Send index
+                            } else {
+                                maxOf(0, updated.size - 1)  // last photo index
+                            }
                             hudState.value = current.copy(
                                 photoThumbnails = updated,
                                 inputActionIndex = minOf(current.inputActionIndex, maxIndex)

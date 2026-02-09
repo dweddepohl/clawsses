@@ -787,7 +787,7 @@ private fun InputStagingArea(
 ) {
     val commandFontSize = 8.sp  // Match menu bar fixed size
     val photoCount = photos.size
-    val hasContent = text.isNotEmpty() || photos.isNotEmpty()
+    val hasContent = text.isNotEmpty()
 
     Column(
         modifier = modifier

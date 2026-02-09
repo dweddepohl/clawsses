@@ -959,6 +959,30 @@ fun SettingsDialog(
                         }
 
                         if (!debugModeEnabled) {
+                            // Saved glasses SN
+                            if (RokidSdkManager.hasCachedSn()) {
+                                Spacer(Modifier.height(16.dp))
+                                val snText = RokidSdkManager.getCachedSn()
+                                Text(
+                                    "Saved SN: ${snText ?: "encrypted"}",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { RokidSdkManager.clearCachedSn() },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Clear saved glasses SN")
+                                }
+                                Text(
+                                    "Use if switching to different glasses",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+
                             Spacer(Modifier.height(16.dp))
 
                             Row(
@@ -1064,24 +1088,6 @@ fun SettingsDialog(
                                         Text("Disconnect")
                                     }
                                 }
-                            }
-
-                            // Clear cached glasses SN
-                            if (RokidSdkManager.hasCachedSn()) {
-                                Spacer(Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = { RokidSdkManager.clearCachedSn() },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Clear saved glasses SN")
-                                }
-                                Text(
-                                    "Use if switching to different glasses",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
-                                )
                             }
 
                             if (showDeviceList && discoveredDevices.isNotEmpty()) {

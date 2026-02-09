@@ -152,7 +152,7 @@ object RokidSdkManager {
                     if (encrypted != null) {
                         Log.i(TAG, "Generated snEncryptContent for SN=$glassesSn (${encrypted.size} bytes)")
                         generatedSnEncryptContent = encrypted
-                        saveCachedSnEncryptContent(encrypted)
+                        saveCachedSnEncryptContent(encrypted, glassesSn)
                         snAutoRetryInProgress = true
                         // Retry connection with correct snEncryptContent
                         val uuid = savedSocketUuid
@@ -444,23 +444,32 @@ object RokidSdkManager {
 
     private const val SN_PREFS = "clawsses_glasses_sn"
     private const val SN_KEY = "sn_encrypt_content"
+    private const val SN_PLAIN_KEY = "sn_plain"
+    private var cachedSnPlain: String? = null
 
-    private fun saveCachedSnEncryptContent(encrypted: ByteArray) {
+    private fun saveCachedSnEncryptContent(encrypted: ByteArray, plainSn: String? = null) {
         val ctx = appContext ?: return
         val base64 = Base64.encodeToString(encrypted, Base64.NO_WRAP)
         ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(SN_KEY, base64)
+            .apply {
+                if (plainSn != null) {
+                    putString(SN_PLAIN_KEY, plainSn)
+                    cachedSnPlain = plainSn
+                }
+            }
             .apply()
         Log.i(TAG, "Saved SN encrypt content to SharedPreferences")
     }
 
     private fun loadCachedSnEncryptContent() {
         val ctx = appContext ?: return
-        val base64 = ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
-            .getString(SN_KEY, null) ?: return
+        val prefs = ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
+        val base64 = prefs.getString(SN_KEY, null) ?: return
         try {
             generatedSnEncryptContent = Base64.decode(base64, Base64.NO_WRAP)
+            cachedSnPlain = prefs.getString(SN_PLAIN_KEY, null)
             Log.i(TAG, "Loaded cached SN encrypt content (${generatedSnEncryptContent!!.size} bytes)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load cached SN encrypt content", e)
@@ -473,10 +482,12 @@ object RokidSdkManager {
      */
     fun clearCachedSn() {
         generatedSnEncryptContent = null
+        cachedSnPlain = null
         val ctx = appContext ?: return
         ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(SN_KEY)
+            .remove(SN_PLAIN_KEY)
             .apply()
         Log.i(TAG, "Cleared cached SN encrypt content")
     }
@@ -485,6 +496,11 @@ object RokidSdkManager {
      * Check whether a cached glasses SN exists.
      */
     fun hasCachedSn(): Boolean = generatedSnEncryptContent != null
+
+    /**
+     * Get the cached plain-text glasses serial number, if available.
+     */
+    fun getCachedSn(): String? = cachedSnPlain
 
     /**
      * Send a custom command/message to the glasses via Bluetooth

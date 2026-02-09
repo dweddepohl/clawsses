@@ -1347,5 +1347,11 @@ class HudActivity : ComponentActivity() {
         cameraCapture.cleanup()
         voiceHandler.cleanup()
         phoneConnection.stop()
+        // Kill the process so the next launch starts completely fresh.
+        // The CXR native layer may hold global state from the previous
+        // CXRServiceBridge that prevents a second bridge in the same process
+        // from working correctly. The CXR system service maintains the BT
+        // connection independently, so the next launch can re-establish it.
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 }

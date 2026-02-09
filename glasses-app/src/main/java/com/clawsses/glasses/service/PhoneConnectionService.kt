@@ -36,6 +36,7 @@ class PhoneConnectionService(
     private var isConnected = false
     private var connectedDeviceName: String? = null
     private var connectedDeviceMac: String? = null
+    private var probeJob: Job? = null
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState
@@ -92,6 +93,19 @@ class PhoneConnectionService(
         }
     }
 
+    /**
+     * Consolidate connection detection from any source (onConnected, ARTC, message receipt).
+     * Cancels the active probe once a connection is confirmed.
+     */
+    private fun markConnected(info: String) {
+        if (!isConnected) {
+            Log.i(TAG, "Connection detected: $info")
+            isConnected = true
+            _connectionState.value = ConnectionState.Connected(info)
+        }
+        probeJob?.cancel()
+    }
+
     private fun initializeBridge() {
         cxrBridge = CXRServiceBridge()
 
@@ -103,8 +117,7 @@ class PhoneConnectionService(
                 Log.i(TAG, "Phone connected via CXR bridge: $name ($mac), type=$deviceType")
                 connectedDeviceName = name
                 connectedDeviceMac = mac
-                isConnected = true
-                _connectionState.value = ConnectionState.Connected("$name ($mac)")
+                markConnected("$name ($mac)")
             }
 
             override fun onDisconnected() {
@@ -122,12 +135,8 @@ class PhoneConnectionService(
 
             override fun onARTCStatus(latency: Float, connected: Boolean) {
                 Log.d(TAG, "ARTC status: latency=$latency, connected=$connected")
-                // ARTC status with connected=true is another signal that the phone
-                // is connected, even if onConnected hasn't fired (e.g. after app restart).
-                if (connected && !isConnected) {
-                    Log.i(TAG, "Connection detected via ARTC status")
-                    isConnected = true
-                    _connectionState.value = ConnectionState.Connected("Phone (detected via ARTC)")
+                if (connected) {
+                    markConnected("Phone (detected via ARTC)")
                 }
             }
 
@@ -140,8 +149,6 @@ class PhoneConnectionService(
         val result = cxrBridge?.subscribe(MSG_TYPE_TERMINAL, object : CXRServiceBridge.MsgCallback {
             override fun onReceive(msgType: String?, caps: Caps?, data: ByteArray?) {
                 Log.d(TAG, "Received message type: $msgType, caps=${caps != null}, data=${data?.size}")
-                // Read string from Caps container (phone writes via caps.write(string))
-                // caps.at(0).getString() reads the first value written into the Caps object
                 val message = when {
                     data != null && data.isNotEmpty() -> {
                         String(data, Charsets.UTF_8)
@@ -157,13 +164,7 @@ class PhoneConnectionService(
                     else -> ""
                 }
                 if (message.isNotEmpty()) {
-                    // If we receive a message but haven't seen onConnected yet,
-                    // the phone reconnected and the BT link is alive. Mark connected.
-                    if (!isConnected) {
-                        Log.i(TAG, "Connection detected via message receipt (onConnected may not have fired)")
-                        isConnected = true
-                        _connectionState.value = ConnectionState.Connected("Phone (detected via message)")
-                    }
+                    markConnected("Phone (detected via message)")
                     Log.d(TAG, "Message content (${message.length} chars): ${message.take(100)}...")
                     onMessageReceived(message)
                 } else {
@@ -173,6 +174,43 @@ class PhoneConnectionService(
         })
 
         Log.d(TAG, "Subscribed to $MSG_TYPE_TERMINAL messages, result: $result")
+
+        // Start active connection probe: the CXR system service may already have a
+        // BT connection alive from before the app restart, but a new CXRServiceBridge
+        // does NOT replay onConnected for pre-existing connections. Actively send
+        // request_state probes to trigger a response from the phone, which will arrive
+        // via the subscribe callback and confirm the connection is alive.
+        startConnectionProbe()
+    }
+
+    /**
+     * Actively probe for a live phone connection by sending request_state messages
+     * directly through the CXR bridge (bypassing the isConnected check).
+     * When the phone responds, the subscribe callback fires and markConnected() is called.
+     */
+    private fun startConnectionProbe() {
+        probeJob?.cancel()
+        probeJob = scope.launch {
+            // Give the bridge a moment to fire onConnected if BT is freshly established
+            delay(2000L)
+            repeat(10) { attempt ->
+                if (isConnected) return@launch
+                Log.i(TAG, "Connection probe ${attempt + 1}/10: sending request_state")
+                withContext(Dispatchers.Main) {
+                    try {
+                        val caps = Caps()
+                        caps.write("""{"type":"request_state"}""")
+                        cxrBridge?.sendMessage(MSG_TYPE_COMMAND, caps)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Connection probe send failed", e)
+                    }
+                }
+                delay(3000L)
+            }
+            if (!isConnected) {
+                Log.w(TAG, "Connection probe: no response after 10 attempts")
+            }
+        }
     }
 
     /**
@@ -257,6 +295,7 @@ class PhoneConnectionService(
     fun stop() {
         isRunning = false
         isConnected = false
+        probeJob?.cancel()
         scope.cancel()
 
         if (debugMode) {

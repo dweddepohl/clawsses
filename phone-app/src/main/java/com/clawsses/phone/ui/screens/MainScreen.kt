@@ -20,6 +20,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -38,9 +41,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.*
+import androidx.compose.foundation.Image
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -365,6 +373,64 @@ fun MainScreen() {
             )
         },
         bottomBar = {
+            Column {
+                // Thumbnail strip for queued photos
+                if (pendingPhotos.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        pendingPhotos.forEachIndexed { index, base64 ->
+                            val thumbnail = remember(base64) {
+                                try {
+                                    val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+                                    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 }
+                                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                                        ?.asImageBitmap()
+                                } catch (_: Exception) { null }
+                            }
+                            if (thumbnail != null) {
+                                Box {
+                                    Image(
+                                        bitmap = thumbnail,
+                                        contentDescription = "Queued photo ${index + 1}",
+                                        modifier = Modifier
+                                            .height(56.dp)
+                                            .clip(RoundedCornerShape(6.dp)),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                    // Remove button
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove photo",
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .align(Alignment.TopEnd)
+                                            .background(
+                                                Color.Black.copy(alpha = 0.6f),
+                                                RoundedCornerShape(9.dp)
+                                            )
+                                            .clickable {
+                                                pendingPhotos = pendingPhotos
+                                                    .toMutableList()
+                                                    .apply { removeAt(index) }
+                                                glassesManager.sendRawMessage(
+                                                    """{"type":"remove_photo","index":$index}"""
+                                                )
+                                            }
+                                            .padding(2.dp),
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             BottomAppBar {
                 OutlinedTextField(
                     value = inputText,
@@ -475,6 +541,7 @@ fun MainScreen() {
                     Icon(Icons.Default.Send, "Send")
                 }
             }
+            } // Column
         }
     ) { padding ->
         Column(

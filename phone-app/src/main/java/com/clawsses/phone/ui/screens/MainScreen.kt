@@ -87,6 +87,7 @@ fun MainScreen() {
     val selectedVoiceLanguage by voiceLanguageManager.selectedLanguage.collectAsState()
     val sessionList by openClawClient.sessionList.collectAsState()
     val currentSessionKey by openClawClient.currentSessionKey.collectAsState()
+    val unreadSessions by openClawClient.unreadSessions.collectAsState()
 
     // Persist OpenClaw settings in SharedPreferences
     val prefs = remember { context.getSharedPreferences("clawsses", android.content.Context.MODE_PRIVATE) }
@@ -503,6 +504,7 @@ fun MainScreen() {
                 SessionSelector(
                     sessions = sessionList,
                     currentSessionKey = currentSessionKey,
+                    unreadSessionKeys = unreadSessions,
                     expanded = showSessionPicker,
                     onToggle = {
                         if (!showSessionPicker) {
@@ -758,6 +760,7 @@ fun ConnectionStatusBar(
 fun SessionSelector(
     sessions: List<SessionInfo>,
     currentSessionKey: String?,
+    unreadSessionKeys: Set<String> = emptySet(),
     expanded: Boolean,
     onToggle: () -> Unit,
     onSelect: (SessionInfo) -> Unit,
@@ -765,6 +768,7 @@ fun SessionSelector(
 ) {
     val currentSession = sessions.firstOrNull { it.key == currentSessionKey }
     val displayName = currentSession?.name ?: currentSessionKey ?: "No session"
+    val hasAnyUnread = unreadSessionKeys.isNotEmpty()
 
     Box(
         modifier = Modifier
@@ -782,7 +786,7 @@ fun SessionSelector(
                 Icons.Default.Forum,
                 contentDescription = "Session",
                 modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.primary
+                tint = if (hasAnyUnread) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.width(8.dp))
             Text(
@@ -791,6 +795,15 @@ fun SessionSelector(
                 modifier = Modifier.weight(1f),
                 maxLines = 1
             )
+            if (hasAnyUnread) {
+                Icon(
+                    Icons.Default.Circle,
+                    contentDescription = "Unread messages in other sessions",
+                    modifier = Modifier.size(8.dp),
+                    tint = Color(0xFF4CAF50)
+                )
+                Spacer(Modifier.width(4.dp))
+            }
             Icon(
                 if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                 contentDescription = if (expanded) "Collapse" else "Expand",
@@ -812,6 +825,7 @@ fun SessionSelector(
             } else {
                 sessions.forEach { session ->
                     val isCurrent = session.key == currentSessionKey
+                    val hasUnread = session.key in unreadSessionKeys
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -823,10 +837,19 @@ fun SessionSelector(
                                         tint = MaterialTheme.colorScheme.primary
                                     )
                                     Spacer(Modifier.width(8.dp))
+                                } else if (hasUnread) {
+                                    Icon(
+                                        Icons.Default.Circle,
+                                        contentDescription = "New messages",
+                                        modifier = Modifier.size(10.dp),
+                                        tint = Color(0xFF4CAF50)
+                                    )
+                                    Spacer(Modifier.width(11.dp))
                                 }
                                 Text(
                                     text = session.name,
                                     color = if (isCurrent) MaterialTheme.colorScheme.primary
+                                            else if (hasUnread) Color(0xFF4CAF50)
                                             else MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1
                                 )

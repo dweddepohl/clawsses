@@ -190,7 +190,8 @@ data class ConnectionUpdate(
 data class SessionListUpdate(
     @SerializedName("type") val type: String = "session_list",
     @SerializedName("sessions") val sessions: List<SessionInfo>,
-    @SerializedName("currentSessionKey") val currentSessionKey: String? = null
+    @SerializedName("currentSessionKey") val currentSessionKey: String? = null,
+    @SerializedName("unreadSessionKeys") val unreadSessionKeys: List<String> = emptyList()
 ) {
     fun toJson(): String = gson.toJson(this)
 

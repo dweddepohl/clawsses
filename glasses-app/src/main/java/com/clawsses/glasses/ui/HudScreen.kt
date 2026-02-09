@@ -132,7 +132,8 @@ sealed class VoiceInputState {
 data class SessionPickerInfo(
     val key: String,
     val name: String,
-    val kind: String? = null
+    val kind: String? = null,
+    val hasUnread: Boolean = false
 )
 
 /**
@@ -950,6 +951,12 @@ private fun SessionPickerOverlay(
                                 Text(
                                     text = "\u25CF",
                                     color = HudColors.cyan,
+                                    fontSize = 12.sp
+                                )
+                            } else if (session.hasUnread) {
+                                Text(
+                                    text = "\u25CF",
+                                    color = HudColors.green,
                                     fontSize = 12.sp
                                 )
                             }

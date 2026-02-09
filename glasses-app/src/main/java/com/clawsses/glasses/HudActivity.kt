@@ -1068,6 +1068,13 @@ class HudActivity : ComponentActivity() {
                     // Session list from phone
                     val sessionsArray = msg.optJSONArray("sessions")
                     val currentSessionKey = msg.optString("currentSessionKey", "")
+                    val unreadArray = msg.optJSONArray("unreadSessionKeys")
+                    val unreadKeys = mutableSetOf<String>()
+                    if (unreadArray != null) {
+                        for (i in 0 until unreadArray.length()) {
+                            unreadKeys.add(unreadArray.optString(i, ""))
+                        }
+                    }
                     val sessions = mutableListOf<SessionPickerInfo>()
 
                     if (sessionsArray != null) {
@@ -1084,7 +1091,8 @@ class HudActivity : ComponentActivity() {
                                 sessions.add(SessionPickerInfo(
                                     key = key,
                                     name = name,
-                                    kind = kind.ifEmpty { null }
+                                    kind = kind.ifEmpty { null },
+                                    hasUnread = key in unreadKeys
                                 ))
                             }
                         }

@@ -80,11 +80,16 @@ class OpenClawClient(
     // Active agent run tracking
     private var activeRunId: String? = null
     private var activeMessageId: String? = null
+    private var activeSessionKey: String? = null // session that initiated the current run
     private var streamingContent = StringBuilder()
 
     // Current session tracking (exposed as StateFlow for phone UI)
     private val _currentSessionKey = MutableStateFlow<String?>(null)
     val currentSessionKey: StateFlow<String?> = _currentSessionKey.asStateFlow()
+
+    // Sessions with unread messages (received while that session was not active)
+    private val _unreadSessions = MutableStateFlow<Set<String>>(emptySet())
+    val unreadSessions: StateFlow<Set<String>> = _unreadSessions.asStateFlow()
 
     // Available sessions (exposed as StateFlow for phone UI)
     private val _sessionList = MutableStateFlow<List<SessionInfo>>(emptyList())
@@ -202,6 +207,7 @@ class OpenClawClient(
 
                 val assistantMsgId = UUID.randomUUID().toString()
                 activeMessageId = assistantMsgId
+                activeSessionKey = _currentSessionKey.value
                 streamingContent.clear()
 
                 val response = sendRequest(OpenClawMethods.CHAT_SEND, params)
@@ -253,7 +259,8 @@ class OpenClawClient(
                     _sessionList.value = sessions
                     onSessionList?.invoke(SessionListUpdate(
                         sessions = sessions,
-                        currentSessionKey = _currentSessionKey.value
+                        currentSessionKey = _currentSessionKey.value,
+                        unreadSessionKeys = _unreadSessions.value.toList()
                     ))
                 } else {
                     Log.e(TAG, "Session list request failed: ${response.error}")
@@ -272,6 +279,8 @@ class OpenClawClient(
             Log.d(TAG, "Switching to session: $sessionKey")
             _currentSessionKey.value = sessionKey
             _chatMessages.value = emptyList()
+            // Clear unread flag for the session we're switching to
+            _unreadSessions.value = _unreadSessions.value - sessionKey
             notifyConnectionUpdate(true, sessionKey)
             loadSessionHistory(sessionKey)
         }
@@ -546,6 +555,27 @@ class OpenClawClient(
         payload ?: return
         val state = payload.get("state")?.asString ?: return
         val runId = payload.get("runId")?.asString
+        val eventSessionKey = payload.get("sessionKey")?.asString
+
+        // Check if this event belongs to a different session than the currently active one.
+        // If so, mark that session as having unread messages and don't render into the current view.
+        val currentKey = _currentSessionKey.value
+        if (eventSessionKey != null && currentKey != null && eventSessionKey != currentKey) {
+            Log.d(TAG, "Chat event for inactive session $eventSessionKey (active=$currentKey), state=$state — marking unread")
+            _unreadSessions.value = _unreadSessions.value + eventSessionKey
+            // Still need to clean up our streaming state if this was our active run
+            // (user switched sessions mid-stream)
+            if (runId != null && runId == activeRunId) {
+                if (state == "final" || state == "aborted" || state == "error") {
+                    Log.d(TAG, "Clearing stale active run $activeRunId for inactive session")
+                    activeRunId = null
+                    activeMessageId = null
+                    activeSessionKey = null
+                    streamingContent.clear()
+                }
+            }
+            return
+        }
 
         // Only process events for our active run
         if (runId != null && activeRunId != null && runId != activeRunId) return
@@ -570,12 +600,15 @@ class OpenClawClient(
             "final" -> {
                 val fullText = extractTextFromMessage(payload)
                 val previous = streamingContent.toString()
-                if (fullText.length > previous.length) {
+                if (fullText.isNotEmpty() && fullText.length > previous.length) {
                     val newChunk = fullText.substring(previous.length)
                     onChatStream?.invoke(ChatStream(id = msgId, chunk = newChunk))
                 }
-                streamingContent.clear()
-                streamingContent.append(fullText)
+                // Use the final full text if available, otherwise keep what we accumulated
+                if (fullText.isNotEmpty()) {
+                    streamingContent.clear()
+                    streamingContent.append(fullText)
+                }
                 finalizeStreaming()
             }
             "aborted", "error" -> {
@@ -614,19 +647,36 @@ class OpenClawClient(
                 role = "assistant",
                 content = content
             )
-            addChatMessage(assistantMsg)
+            // Update in place if already in the list (from streaming), otherwise add
+            updateOrAddChatMessage(assistantMsg)
+            // Send the complete finalized message to glasses so they have the full
+            // content even if any streaming chunks were missed
+            onChatMessage?.invoke(assistantMsg)
         }
 
         onChatStreamEnd?.invoke(ChatStreamEnd(id = msgId))
 
         activeRunId = null
         activeMessageId = null
+        activeSessionKey = null
         streamingContent.clear()
     }
 
     private fun addChatMessage(message: ChatMessage) {
         val current = _chatMessages.value.toMutableList()
         current.add(message)
+        _chatMessages.value = current
+    }
+
+    /** Update existing message by id or add if not found */
+    private fun updateOrAddChatMessage(message: ChatMessage) {
+        val current = _chatMessages.value.toMutableList()
+        val index = current.indexOfFirst { it.id == message.id }
+        if (index >= 0) {
+            current[index] = message
+        } else {
+            current.add(message)
+        }
         _chatMessages.value = current
     }
 

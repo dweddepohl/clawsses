@@ -301,11 +301,11 @@ fun HudScreen(
                 val scrollDistance = -(itemsToScroll * avgItemHeight)
                 listState.animateScrollBy(scrollDistance)
             } else if (state.scrollPosition == totalItems - 1) {
-                // Scrolling to last item: use a large offset so the bottom of the
-                // item aligns with the viewport bottom (Compose clamps internally).
-                // This ensures the last message is fully visible even with large
-                // fonts or half-screen mode.
-                listState.animateScrollToItem(state.scrollPosition, Int.MAX_VALUE)
+                // Scrolling to last item: when the thinking indicator is present
+                // it's an extra LazyColumn item after all messages, so scroll to
+                // that item instead to keep it visible.
+                val scrollTarget = if (state.agentState == AgentState.THINKING) totalItems else state.scrollPosition
+                listState.animateScrollToItem(scrollTarget, Int.MAX_VALUE)
             } else {
                 listState.animateScrollToItem(state.scrollPosition)
             }

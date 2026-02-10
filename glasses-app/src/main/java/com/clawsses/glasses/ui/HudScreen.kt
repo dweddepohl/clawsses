@@ -581,6 +581,17 @@ private fun ChatContentArea(
     alpha: Float,
     modifier: Modifier = Modifier
 ) {
+    // Auto-scroll to show thinking indicator when it appears
+    LaunchedEffect(agentState) {
+        if (agentState == AgentState.THINKING) {
+            // The thinking indicator is added as an extra item after messages,
+            // so we scroll to show it (messages.size is its index since items are 0-indexed)
+            val thinkingIndicatorIndex = messages.size
+            // Use a large offset to align the indicator at the bottom of the viewport
+            listState.animateScrollToItem(thinkingIndicatorIndex, Int.MAX_VALUE)
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()

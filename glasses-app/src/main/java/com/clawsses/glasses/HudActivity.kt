@@ -209,17 +209,18 @@ class HudActivity : ComponentActivity() {
             }
         }
 
-        // Poll battery level every 60 seconds
+        // Poll battery level every 5 seconds (reads cached kernel value, negligible cost)
         lifecycleScope.launch {
             val batteryManager = getSystemService(BATTERY_SERVICE) as? BatteryManager
             while (true) {
                 val level = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                     ?.takeIf { it in 0..100 }
+                val charging = batteryManager?.isCharging == true
                 val current = hudState.value
-                if (current.batteryLevel != level) {
-                    hudState.value = current.copy(batteryLevel = level)
+                if (current.batteryLevel != level || current.batteryCharging != charging) {
+                    hudState.value = current.copy(batteryLevel = level, batteryCharging = charging)
                 }
-                delay(60_000)
+                delay(5_000)
             }
         }
     }

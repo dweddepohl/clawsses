@@ -204,7 +204,8 @@ data class ChatHudState(
     // Exit confirmation dialog
     val showExitConfirm: Boolean = false,
     // Battery level (0-100), null = unavailable / hide indicator
-    val batteryLevel: Int? = null
+    val batteryLevel: Int? = null,
+    val batteryCharging: Boolean = false
 ) {
     /** Total number of messages */
     val totalMessages: Int get() = messages.size
@@ -423,6 +424,7 @@ fun HudScreen(
                     isFocused = menuFocused,
                     hudPosition = state.hudPosition,
                     batteryLevel = state.batteryLevel,
+                    batteryCharging = state.batteryCharging,
                     fontFamily = monoFontFamily,
                     alpha = menuAlpha
                 )
@@ -962,6 +964,7 @@ private fun ChatMenuBar(
     isFocused: Boolean,
     hudPosition: HudPosition,
     batteryLevel: Int?,
+    batteryCharging: Boolean,
     fontFamily: FontFamily,
     alpha: Float,
     modifier: Modifier = Modifier
@@ -1035,7 +1038,7 @@ private fun ChatMenuBar(
         // Battery indicator (bottom-right, only shown when available)
         if (batteryLevel != null) {
             Text(
-                text = "\uD83D\uDD0B${batteryLevel}%",  // 🔋
+                text = "${if (batteryCharging) "\u26A1" else "\uD83D\uDD0B"}${batteryLevel}%",  // ⚡ or 🔋
                 color = if (batteryLevel <= 15) HudColors.error else HudColors.dimText,
                 fontSize = commandFontSize,
                 fontFamily = fontFamily,

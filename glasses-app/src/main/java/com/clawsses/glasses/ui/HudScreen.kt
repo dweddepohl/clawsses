@@ -202,7 +202,9 @@ data class ChatHudState(
     val showInputStaging: Boolean = false,
     val inputActionIndex: Int = 0,  // Index into combined row: [photo0..N-1, Clear, Send]. Default = Send (last)
     // Exit confirmation dialog
-    val showExitConfirm: Boolean = false
+    val showExitConfirm: Boolean = false,
+    // Battery level (0-100), null = unavailable / hide indicator
+    val batteryLevel: Int? = null
 ) {
     /** Total number of messages */
     val totalMessages: Int get() = messages.size
@@ -420,6 +422,7 @@ fun HudScreen(
                     selectedIndex = state.menuBarIndex,
                     isFocused = menuFocused,
                     hudPosition = state.hudPosition,
+                    batteryLevel = state.batteryLevel,
                     fontFamily = monoFontFamily,
                     alpha = menuAlpha
                 )
@@ -958,6 +961,7 @@ private fun ChatMenuBar(
     selectedIndex: Int,
     isFocused: Boolean,
     hudPosition: HudPosition,
+    batteryLevel: Int?,
     fontFamily: FontFamily,
     alpha: Float,
     modifier: Modifier = Modifier
@@ -969,57 +973,74 @@ private fun ChatMenuBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .alpha(alpha)
-            .horizontalScroll(scrollState),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+            .alpha(alpha),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        items.forEachIndexed { index, item ->
-            val isSelected = index == selectedIndex && isFocused
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(scrollState),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items.forEachIndexed { index, item ->
+                val isSelected = index == selectedIndex && isFocused
 
-            // Dynamic icon for SIZE: shows what next position will look like
-            val displayIcon = if (item == MenuBarItem.SIZE) {
-                when (hudPosition) {
-                    HudPosition.FULL -> "\u2584"        // ▄ next: bottom half
-                    HudPosition.BOTTOM_HALF -> "\u2580" // ▀ next: top half
-                    HudPosition.TOP_HALF -> "\u2588"    // █ next: full
+                // Dynamic icon for SIZE: shows what next position will look like
+                val displayIcon = if (item == MenuBarItem.SIZE) {
+                    when (hudPosition) {
+                        HudPosition.FULL -> "\u2584"        // ▄ next: bottom half
+                        HudPosition.BOTTOM_HALF -> "\u2580" // ▀ next: top half
+                        HudPosition.TOP_HALF -> "\u2588"    // █ next: full
+                    }
+                } else {
+                    item.icon
                 }
-            } else {
-                item.icon
-            }
 
-            Box(
-                modifier = Modifier
-                    .background(
-                        if (isSelected) HudColors.green.copy(alpha = 0.3f) else Color.Transparent,
-                        RoundedCornerShape(4.dp)
-                    )
-                    .border(
-                        width = if (isSelected) 1.dp else 0.dp,
-                        color = if (isSelected) HudColors.green else Color.Transparent,
-                        shape = RoundedCornerShape(4.dp)
-                    )
-                    .padding(horizontal = 6.dp, vertical = 3.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (isSelected) HudColors.green.copy(alpha = 0.3f) else Color.Transparent,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .border(
+                            width = if (isSelected) 1.dp else 0.dp,
+                            color = if (isSelected) HudColors.green else Color.Transparent,
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
-                    Text(
-                        text = displayIcon,
-                        color = if (isSelected) HudColors.green else HudColors.primaryText,
-                        fontSize = (commandFontSize.value + 2).sp,
-                        fontFamily = fontFamily
-                    )
-                    Text(
-                        text = item.label,
-                        color = if (isSelected) HudColors.green else HudColors.dimText,
-                        fontSize = commandFontSize,
-                        fontFamily = fontFamily,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = displayIcon,
+                            color = if (isSelected) HudColors.green else HudColors.primaryText,
+                            fontSize = (commandFontSize.value + 2).sp,
+                            fontFamily = fontFamily
+                        )
+                        Text(
+                            text = item.label,
+                            color = if (isSelected) HudColors.green else HudColors.dimText,
+                            fontSize = commandFontSize,
+                            fontFamily = fontFamily,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 }
             }
+        }
+
+        // Battery indicator (bottom-right, only shown when available)
+        if (batteryLevel != null) {
+            Text(
+                text = "\uD83D\uDD0B${batteryLevel}%",  // 🔋
+                color = if (batteryLevel <= 15) HudColors.error else HudColors.dimText,
+                fontSize = commandFontSize,
+                fontFamily = fontFamily,
+                modifier = Modifier.padding(start = 4.dp)
+            )
         }
     }
 }

@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
+import android.os.BatteryManager
 import android.os.Build
 import com.clawsses.glasses.BuildConfig
 
@@ -205,6 +206,20 @@ class HudActivity : ComponentActivity() {
                         phoneConnection.sendToPhone("""{"type":"request_state"}""")
                     }
                 }
+            }
+        }
+
+        // Poll battery level every 60 seconds
+        lifecycleScope.launch {
+            val batteryManager = getSystemService(BATTERY_SERVICE) as? BatteryManager
+            while (true) {
+                val level = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                    ?.takeIf { it in 0..100 }
+                val current = hudState.value
+                if (current.batteryLevel != level) {
+                    hudState.value = current.copy(batteryLevel = level)
+                }
+                delay(60_000)
             }
         }
     }

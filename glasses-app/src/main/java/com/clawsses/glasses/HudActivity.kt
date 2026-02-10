@@ -41,6 +41,7 @@ import com.clawsses.glasses.ui.theme.GlassesHudTheme
 import com.clawsses.glasses.voice.GlassesVoiceHandler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -122,10 +123,9 @@ class HudActivity : ComponentActivity() {
 
         cameraCapture = CameraCapture(this)
 
-        // Observe voice state
+        // Observe voice state using atomic update to prevent race with stageVoiceText
         lifecycleScope.launch {
             voiceHandler.voiceState.collect { voiceState ->
-                val current = hudState.value
                 val newVoiceState = when (voiceState) {
                     is GlassesVoiceHandler.VoiceState.Idle -> VoiceInputState.Idle
                     is GlassesVoiceHandler.VoiceState.Listening -> VoiceInputState.Listening
@@ -136,10 +136,13 @@ class HudActivity : ComponentActivity() {
                     is GlassesVoiceHandler.VoiceState.Recognizing -> voiceState.partialText
                     else -> ""
                 }
-                hudState.value = current.copy(
-                    voiceState = newVoiceState,
-                    voiceText = newVoiceText
-                )
+                // Use atomic update to avoid overwriting concurrent state changes
+                hudState.update { current ->
+                    current.copy(
+                        voiceState = newVoiceState,
+                        voiceText = newVoiceText
+                    )
+                }
             }
         }
 
@@ -876,22 +879,29 @@ class HudActivity : ComponentActivity() {
         }
     }
 
-    /** Append voice text to the staging area and show it. */
+    /**
+     * Append voice text to the staging area and show it.
+     * Also clears voice UI state to prevent race condition with voice state collector.
+     */
     private fun stageVoiceText(text: String) {
         Log.d(GlassesApp.TAG, "Staging voice text: ${text.take(100)}")
-        val current = hudState.value
-        val newStagingText = if (current.stagingText.isEmpty()) {
-            text
-        } else {
-            "${current.stagingText} $text"
+        // Use atomic update to avoid race with concurrent state changes
+        hudState.update { current ->
+            val newStagingText = if (current.stagingText.isEmpty()) {
+                text
+            } else {
+                "${current.stagingText} $text"
+            }
+            current.copy(
+                stagingText = newStagingText,
+                showInputStaging = true,
+                focusedArea = ChatFocusArea.INPUT,
+                inputActionIndex = current.photoThumbnails.size + 1,  // Default to Send
+                scrollTrigger = current.scrollTrigger + 1,
+                voiceState = VoiceInputState.Idle,
+                voiceText = ""
+            )
         }
-        hudState.value = current.copy(
-            stagingText = newStagingText,
-            showInputStaging = true,
-            focusedArea = ChatFocusArea.INPUT,
-            inputActionIndex = current.photoThumbnails.size + 1,  // Default to Send
-            scrollTrigger = current.scrollTrigger + 1
-        )
     }
 
     private fun handleVoiceResult(result: GlassesVoiceHandler.VoiceResult) {
@@ -1246,10 +1256,10 @@ class HudActivity : ComponentActivity() {
                 "voice_result" -> {
                     val resultType = msg.optString("result_type", "text")
                     val text = msg.optString("text", "")
-                    // Update voice handler state (sets to Idle, clears onResult)
-                    voiceHandler.handleVoiceResult(resultType, text)
-                    // Stage text directly — don't rely on onResult callback
-                    // which may not be set (AI key path bypasses startVoice on glasses)
+                    // Stage text FIRST, then update voice handler state.
+                    // stageVoiceText atomically updates staging AND clears voice UI,
+                    // preventing a race where the voice state collector overwrites
+                    // the staging text by reading stale state.
                     when (resultType) {
                         "text" -> {
                             val trimmed = text.trim()
@@ -1259,6 +1269,8 @@ class HudActivity : ComponentActivity() {
                         }
                         "command" -> handleVoiceCommand(text)
                     }
+                    // Clear callback and ensure voice handler knows we're done
+                    voiceHandler.handleVoiceResult(resultType, text)
                 }
 
                 "photo_result" -> {

@@ -79,6 +79,12 @@ fun GlassesSection(
                 is GlassesConnectionManager.ConnectionState.InitializingWifiP2P ->
                     ConnectingContent(message = "Setting up WiFi P2P...")
 
+                is GlassesConnectionManager.ConnectionState.Reconnecting ->
+                    ReconnectingContent(
+                        attempt = state.attempt,
+                        nextRetryMs = state.nextRetryMs,
+                    )
+
                 is GlassesConnectionManager.ConnectionState.Connected ->
                     ConnectedContent(
                         deviceName = state.deviceName,
@@ -218,6 +224,16 @@ private fun ConnectingContent(message: String = "Connecting...") {
         color = Color(0xFFFFC107),
         title = message,
         subtitle = "Please wait",
+        showProgress = true,
+    )
+}
+
+@Composable
+private fun ReconnectingContent(attempt: Int, nextRetryMs: Long) {
+    StatusRow(
+        color = Color(0xFFFFA500), // Orange
+        title = "Reconnecting...",
+        subtitle = "Attempt #$attempt (next retry in ${nextRetryMs / 1000}s)",
         showProgress = true,
     )
 }

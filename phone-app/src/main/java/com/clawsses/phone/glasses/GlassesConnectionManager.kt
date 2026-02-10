@@ -30,8 +30,11 @@ class GlassesConnectionManager(private val context: Context) {
     companion object {
         private const val TAG = "GlassesConnection"
         private const val SCAN_TIMEOUT_MS = 15000L
-        private const val RECONNECT_DELAY_MS = 3000L
-        private const val MAX_RECONNECT_ATTEMPTS = 5
+
+        // Reconnection with exponential backoff
+        private const val RECONNECT_BASE_DELAY_MS = 1000L   // Start with 1 second
+        private const val RECONNECT_MAX_DELAY_MS = 60000L   // Cap at 60 seconds
+        private const val RECONNECT_BACKOFF_MULTIPLIER = 1.5
 
         // Rokid BLE Service UUID (glasses advertise with this UUID)
         val ROKID_SERVICE_UUID: UUID = UUID.fromString("00009100-0000-1000-8000-00805f9b34fb")
@@ -54,6 +57,8 @@ class GlassesConnectionManager(private val context: Context) {
         object InitializingWifiP2P : ConnectionState()
         data class Connected(val deviceName: String) : ConnectionState()
         data class Error(val message: String) : ConnectionState()
+        /** Paired but temporarily disconnected; auto-reconnecting in background */
+        data class Reconnecting(val attempt: Int, val nextRetryMs: Long) : ConnectionState()
     }
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -81,11 +86,12 @@ class GlassesConnectionManager(private val context: Context) {
     val debugModeEnabled: StateFlow<Boolean> = _debugModeEnabled.asStateFlow()
 
     // Auto-reconnect: when glasses disconnect unexpectedly (e.g. glasses app restart),
-    // automatically attempt to reconnect using saved BT credentials.
+    // automatically attempt to reconnect using saved BT credentials with exponential backoff.
     private val reconnectScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var reconnectJob: Job? = null
     private var userInitiatedDisconnect = false
     private var reconnectAttempts = 0
+    private var currentReconnectDelayMs = RECONNECT_BASE_DELAY_MS
 
     // Callback for messages from glasses (both BLE and debug modes)
     var onMessageFromGlasses: ((String) -> Unit)? = null
@@ -103,7 +109,9 @@ class GlassesConnectionManager(private val context: Context) {
         RokidSdkManager.onGlassesConnected = {
             val name = RokidSdkManager.getSavedDeviceName() ?: "Rokid Glasses"
             _connectionState.value = ConnectionState.Connected(name)
+            // Reset reconnect state on successful connection
             reconnectAttempts = 0
+            currentReconnectDelayMs = RECONNECT_BASE_DELAY_MS
             reconnectJob?.cancel()
             RokidSdkManager.setScreenOffTimeout(30)
             Log.d(TAG, "SDK: Glasses connected")
@@ -303,6 +311,36 @@ class GlassesConnectionManager(private val context: Context) {
     }
 
     /**
+     * Try to auto-reconnect to previously paired glasses on app startup.
+     * Only attempts if there's saved connection info and not in debug mode.
+     * Returns true if reconnection was initiated, false if no saved info exists.
+     */
+    fun tryAutoReconnectOnStartup(): Boolean {
+        if (_debugModeEnabled.value) {
+            Log.d(TAG, "Auto-reconnect skipped: debug mode enabled")
+            return false
+        }
+
+        // Initialize SDK if not already
+        if (!RokidSdkManager.isReady()) {
+            if (!RokidSdkManager.initialize(context)) {
+                Log.w(TAG, "Auto-reconnect skipped: SDK initialization failed")
+                return false
+            }
+        }
+
+        if (!RokidSdkManager.hasSavedConnectionInfo()) {
+            Log.d(TAG, "Auto-reconnect skipped: no saved connection info")
+            return false
+        }
+
+        Log.i(TAG, "Attempting auto-reconnect to previously paired glasses")
+        userInitiatedDisconnect = false
+        _connectionState.value = ConnectionState.Connecting
+        return RokidSdkManager.reconnect()
+    }
+
+    /**
      * Initialize WiFi P2P connection (required for APK uploads)
      * Call this after Bluetooth is connected.
      */
@@ -321,8 +359,7 @@ class GlassesConnectionManager(private val context: Context) {
      */
     fun disconnect() {
         userInitiatedDisconnect = true
-        reconnectJob?.cancel()
-        reconnectAttempts = 0
+        cancelReconnect()
         if (_debugModeEnabled.value) {
             stopDebugServer()
         } else {
@@ -332,23 +369,58 @@ class GlassesConnectionManager(private val context: Context) {
         _wifiP2PConnected.value = false
     }
 
+    /**
+     * Schedule auto-reconnect with exponential backoff.
+     * Uses increasing delays (1s, 1.5s, 2.25s, ...) capped at 60 seconds.
+     * Continues indefinitely until connection succeeds or user manually disconnects.
+     */
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
-        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            Log.w(TAG, "Max reconnect attempts ($MAX_RECONNECT_ATTEMPTS) reached, giving up")
+
+        // Check if we have saved connection info
+        if (!RokidSdkManager.hasSavedConnectionInfo()) {
+            Log.w(TAG, "Cannot auto-reconnect: no saved connection info")
+            _connectionState.value = ConnectionState.Disconnected
             return
         }
+
+        val attempt = reconnectAttempts + 1
+        val delayMs = currentReconnectDelayMs
+
+        Log.i(TAG, "Auto-reconnect attempt $attempt in ${delayMs}ms (exponential backoff)")
+        _connectionState.value = ConnectionState.Reconnecting(attempt, delayMs)
+
         reconnectJob = reconnectScope.launch {
-            val attempt = reconnectAttempts + 1
-            Log.i(TAG, "Auto-reconnect attempt $attempt/$MAX_RECONNECT_ATTEMPTS in ${RECONNECT_DELAY_MS}ms")
-            delay(RECONNECT_DELAY_MS)
+            delay(delayMs)
+
+            // Update state before attempting
             reconnectAttempts = attempt
+
+            // Calculate next delay with exponential backoff, capped at max
+            currentReconnectDelayMs = (currentReconnectDelayMs * RECONNECT_BACKOFF_MULTIPLIER)
+                .toLong()
+                .coerceAtMost(RECONNECT_MAX_DELAY_MS)
+
             if (RokidSdkManager.reconnect()) {
                 Log.i(TAG, "Auto-reconnect initiated (attempt $attempt)")
+                // State will change to Connected via onGlassesConnected callback
+                // or schedule another attempt via onGlassesDisconnected/onBluetoothFailed
             } else {
                 Log.w(TAG, "Auto-reconnect failed (no saved connection info)")
+                _connectionState.value = ConnectionState.Disconnected
             }
         }
+    }
+
+    /**
+     * Stop any ongoing auto-reconnect attempts.
+     * Call this when user manually disconnects or clears pairing.
+     */
+    private fun cancelReconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempts = 0
+        currentReconnectDelayMs = RECONNECT_BASE_DELAY_MS
     }
 
     // ============== Debug Mode Methods ==============

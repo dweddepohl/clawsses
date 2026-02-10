@@ -121,6 +121,9 @@ fun MainScreen() {
             }
             glassesManager.sendRawMessage(stateMsg.toString())
         }
+
+        // Try to auto-reconnect to previously paired glasses on startup
+        glassesManager.tryAutoReconnectOnStartup()
     }
 
     // Fetch session list when OpenClaw connects
@@ -738,7 +741,8 @@ fun ConnectionStatusBar(
                 when (glassesState) {
                     is GlassesConnectionManager.ConnectionState.Connected -> Icons.Default.CheckCircle
                     is GlassesConnectionManager.ConnectionState.Connecting,
-                    is GlassesConnectionManager.ConnectionState.Scanning -> Icons.Default.Sync
+                    is GlassesConnectionManager.ConnectionState.Scanning,
+                    is GlassesConnectionManager.ConnectionState.Reconnecting -> Icons.Default.Sync
                     is GlassesConnectionManager.ConnectionState.Error -> Icons.Default.Error
                     else -> Icons.Default.RadioButtonUnchecked
                 },
@@ -747,6 +751,7 @@ fun ConnectionStatusBar(
                     is GlassesConnectionManager.ConnectionState.Connected -> Color.Green
                     is GlassesConnectionManager.ConnectionState.Connecting,
                     is GlassesConnectionManager.ConnectionState.Scanning -> Color.Yellow
+                    is GlassesConnectionManager.ConnectionState.Reconnecting -> Color(0xFFFFA500) // Orange
                     is GlassesConnectionManager.ConnectionState.Error -> Color.Red
                     else -> Color.Gray
                 },
@@ -772,6 +777,10 @@ fun ConnectionStatusBar(
                         is GlassesConnectionManager.ConnectionState.Connected -> "Connected"
                         is GlassesConnectionManager.ConnectionState.Connecting -> "Connecting..."
                         is GlassesConnectionManager.ConnectionState.Scanning -> "Scanning..."
+                        is GlassesConnectionManager.ConnectionState.Reconnecting -> {
+                            val state = glassesState as GlassesConnectionManager.ConnectionState.Reconnecting
+                            "Reconnecting (#${state.attempt})..."
+                        }
                         is GlassesConnectionManager.ConnectionState.Error -> "Error"
                         else -> ""
                     },

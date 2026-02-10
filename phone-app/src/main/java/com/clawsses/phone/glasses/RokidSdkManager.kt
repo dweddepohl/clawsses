@@ -93,10 +93,13 @@ object RokidSdkManager {
             Log.i(TAG, "  rokidAccount=$rokidAccount")
             Log.i(TAG, "  deviceType=$deviceType")
 
-            // Save for reconnection
+            // Save for reconnection (both in memory and to SharedPreferences)
             savedSocketUuid = socketUuid
             savedMacAddress = macAddress
             savedRokidAccount = rokidAccount
+            if (!socketUuid.isNullOrEmpty() && !macAddress.isNullOrEmpty()) {
+                saveConnectionInfo(socketUuid, macAddress)
+            }
             // Try to save device name from Bluetooth device
             try {
                 val name = cxrApi?.let { api ->
@@ -250,6 +253,9 @@ object RokidSdkManager {
 
         // Load cached SN encrypt content from previous session
         loadCachedSnEncryptContent()
+
+        // Load saved connection info for auto-reconnect
+        loadSavedConnectionInfo()
 
         try {
             cxrApi = CxrApi.getInstance()
@@ -448,6 +454,8 @@ object RokidSdkManager {
     private const val SN_KEY = "sn_encrypt_content"
     private const val SN_PLAIN_KEY = "sn_plain"
     private const val DEVICE_NAME_KEY = "device_name"
+    private const val SOCKET_UUID_KEY = "socket_uuid"
+    private const val MAC_ADDRESS_KEY = "mac_address"
     private var cachedSnPlain: String? = null
     private var cachedDeviceName: String? = null
 
@@ -490,21 +498,60 @@ object RokidSdkManager {
     }
 
     /**
-     * Clear the cached glasses serial number.
+     * Save connection info (socketUuid, macAddress) for auto-reconnection.
+     * Called after successful Bluetooth connection.
+     */
+    private fun saveConnectionInfo(socketUuid: String, macAddress: String) {
+        val ctx = appContext ?: return
+        ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(SOCKET_UUID_KEY, socketUuid)
+            .putString(MAC_ADDRESS_KEY, macAddress)
+            .apply()
+        Log.i(TAG, "Saved connection info for auto-reconnect")
+    }
+
+    /**
+     * Load saved connection info from SharedPreferences.
+     * Called during SDK initialization.
+     */
+    private fun loadSavedConnectionInfo() {
+        val ctx = appContext ?: return
+        val prefs = ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
+        savedSocketUuid = prefs.getString(SOCKET_UUID_KEY, null)
+        savedMacAddress = prefs.getString(MAC_ADDRESS_KEY, null)
+        if (savedSocketUuid != null && savedMacAddress != null) {
+            Log.i(TAG, "Loaded saved connection info (mac=${savedMacAddress})")
+        }
+    }
+
+    /**
+     * Check if we have saved connection info for auto-reconnection.
+     */
+    fun hasSavedConnectionInfo(): Boolean {
+        return !savedSocketUuid.isNullOrEmpty() && !savedMacAddress.isNullOrEmpty()
+    }
+
+    /**
+     * Clear the cached glasses serial number and connection info.
      * Call this if connecting to different glasses or if SN verification fails persistently.
      */
     fun clearCachedSn() {
         generatedSnEncryptContent = null
         cachedSnPlain = null
         cachedDeviceName = null
+        savedSocketUuid = null
+        savedMacAddress = null
         val ctx = appContext ?: return
         ctx.getSharedPreferences(SN_PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(SN_KEY)
             .remove(SN_PLAIN_KEY)
             .remove(DEVICE_NAME_KEY)
+            .remove(SOCKET_UUID_KEY)
+            .remove(MAC_ADDRESS_KEY)
             .apply()
-        Log.i(TAG, "Cleared cached SN encrypt content")
+        Log.i(TAG, "Cleared cached SN and connection info")
     }
 
     /**

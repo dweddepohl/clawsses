@@ -25,6 +25,7 @@ import com.clawsses.phone.glasses.GlassesConnectionManager
 import com.clawsses.phone.openclaw.OpenClawClient
 import com.clawsses.phone.util.isEmulator
 import com.clawsses.phone.voice.VoiceLanguageManager
+import com.clawsses.phone.voice.VoiceRecognitionManager
 
 @Composable
 fun SettingsScreen(
@@ -55,6 +56,7 @@ fun SettingsScreen(
     onCancelInstall: () -> Unit,
     // Voice
     voiceLanguageManager: VoiceLanguageManager,
+    voiceRecognitionManager: VoiceRecognitionManager? = null,
     // Developer
     onDebugModeChange: (Boolean) -> Unit,
     // Navigation
@@ -125,7 +127,10 @@ fun SettingsScreen(
             // Voice section
             item { SectionHeader("Voice") }
             item {
-                VoiceSection(voiceLanguageManager = voiceLanguageManager)
+                VoiceSection(
+                    voiceLanguageManager = voiceLanguageManager,
+                    voiceRecognitionManager = voiceRecognitionManager,
+                )
             }
 
             // Developer section (emulator only)

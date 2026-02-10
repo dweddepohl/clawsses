@@ -26,12 +26,20 @@ class GlassesVoiceHandler {
     }
 
     /**
+     * Recognition mode indicator from phone.
+     */
+    enum class RecognitionMode {
+        DEVICE,   // Android's SpeechRecognizer
+        OPENAI    // OpenAI Realtime API
+    }
+
+    /**
      * Voice recognition states for UI display
      */
     sealed class VoiceState {
         object Idle : VoiceState()
-        object Listening : VoiceState()
-        data class Recognizing(val partialText: String) : VoiceState()
+        data class Listening(val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceState()
+        data class Recognizing(val partialText: String, val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceState()
         data class Error(val message: String) : VoiceState()
     }
 
@@ -61,6 +69,9 @@ class GlassesVoiceHandler {
         return true
     }
 
+    // Track current recognition mode for UI display
+    private var currentMode: RecognitionMode = RecognitionMode.DEVICE
+
     /**
      * Start voice input by notifying the phone to begin speech recognition.
      * The phone will route the glasses mic via setCommunicationDevice() and
@@ -68,7 +79,8 @@ class GlassesVoiceHandler {
      */
     fun startListening(onResult: (VoiceResult) -> Unit) {
         this.onResult = onResult
-        _voiceState.value = VoiceState.Listening
+        currentMode = RecognitionMode.DEVICE  // Will be updated by voice_state message
+        _voiceState.value = VoiceState.Listening(currentMode)
 
         Log.d(TAG, "Requesting phone to start voice recognition")
         sendToPhone?.invoke("""{"type":"start_voice"}""")
@@ -86,16 +98,28 @@ class GlassesVoiceHandler {
 
     /**
      * Handle voice state update from phone (partial results, state changes).
+     * @param state Current state: "listening", "recognizing", "error", or "idle"
+     * @param partialText Partial transcription text (for recognizing state)
+     * @param mode Recognition mode: "openai" or "device" (null means keep current)
      */
-    fun handleVoiceState(state: String, partialText: String = "") {
+    fun handleVoiceState(state: String, partialText: String = "", mode: String? = null) {
+        // Update mode if provided
+        if (mode != null) {
+            currentMode = when (mode.lowercase()) {
+                "openai" -> RecognitionMode.OPENAI
+                else -> RecognitionMode.DEVICE
+            }
+            Log.d(TAG, "Recognition mode: $currentMode")
+        }
+
         when (state) {
             "listening" -> {
-                _voiceState.value = VoiceState.Listening
-                Log.d(TAG, "Phone: listening")
+                _voiceState.value = VoiceState.Listening(currentMode)
+                Log.d(TAG, "Phone: listening (mode=$currentMode)")
             }
             "recognizing" -> {
-                _voiceState.value = VoiceState.Recognizing(partialText)
-                Log.d(TAG, "Phone: recognizing '$partialText'")
+                _voiceState.value = VoiceState.Recognizing(partialText, currentMode)
+                Log.d(TAG, "Phone: recognizing '$partialText' (mode=$currentMode)")
             }
             "error" -> {
                 _voiceState.value = VoiceState.Error(partialText)
@@ -108,6 +132,11 @@ class GlassesVoiceHandler {
             }
         }
     }
+
+    /**
+     * Get the current recognition mode for UI display.
+     */
+    fun getCurrentMode(): RecognitionMode = currentMode
 
     /**
      * Handle final voice result from phone.
@@ -131,8 +160,9 @@ class GlassesVoiceHandler {
      * Check if currently listening or showing voice UI
      */
     fun isListening(): Boolean {
-        return _voiceState.value is VoiceState.Listening ||
-               _voiceState.value is VoiceState.Recognizing
+        val state = _voiceState.value
+        return state is VoiceState.Listening ||
+               state is VoiceState.Recognizing
     }
 
     /**
@@ -147,7 +177,7 @@ class GlassesVoiceHandler {
      */
     fun simulateVoiceInput(text: String, onResult: (VoiceResult) -> Unit) {
         Log.d(TAG, "Simulating voice input: $text")
-        _voiceState.value = VoiceState.Recognizing(text)
+        _voiceState.value = VoiceState.Recognizing(text, currentMode)
         _voiceState.value = VoiceState.Idle
         onResult(VoiceResult.Text(text))
     }
@@ -157,9 +187,9 @@ class GlassesVoiceHandler {
      */
     fun updateSimulatedText(text: String) {
         _voiceState.value = if (text.isEmpty()) {
-            VoiceState.Listening
+            VoiceState.Listening(currentMode)
         } else {
-            VoiceState.Recognizing(text)
+            VoiceState.Recognizing(text, currentMode)
         }
     }
 

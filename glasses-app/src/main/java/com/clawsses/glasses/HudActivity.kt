@@ -37,6 +37,7 @@ import com.clawsses.glasses.ui.SessionPickerInfo
 import com.clawsses.glasses.ui.MAX_PHOTOS
 import com.clawsses.glasses.ui.SLASH_COMMANDS
 import com.clawsses.glasses.ui.VoiceInputState
+import com.clawsses.glasses.ui.RecognitionMode
 import com.clawsses.glasses.ui.theme.GlassesHudTheme
 import com.clawsses.glasses.voice.GlassesVoiceHandler
 import kotlinx.coroutines.delay
@@ -126,10 +127,18 @@ class HudActivity : ComponentActivity() {
         // Observe voice state using atomic update to prevent race with stageVoiceText
         lifecycleScope.launch {
             voiceHandler.voiceState.collect { voiceState ->
+                // Map GlassesVoiceHandler mode to UI mode
+                fun mapMode(mode: GlassesVoiceHandler.RecognitionMode): RecognitionMode {
+                    return when (mode) {
+                        GlassesVoiceHandler.RecognitionMode.OPENAI -> RecognitionMode.OPENAI
+                        GlassesVoiceHandler.RecognitionMode.DEVICE -> RecognitionMode.DEVICE
+                    }
+                }
+
                 val newVoiceState = when (voiceState) {
                     is GlassesVoiceHandler.VoiceState.Idle -> VoiceInputState.Idle
-                    is GlassesVoiceHandler.VoiceState.Listening -> VoiceInputState.Listening
-                    is GlassesVoiceHandler.VoiceState.Recognizing -> VoiceInputState.Recognizing
+                    is GlassesVoiceHandler.VoiceState.Listening -> VoiceInputState.Listening(mapMode(voiceState.mode))
+                    is GlassesVoiceHandler.VoiceState.Recognizing -> VoiceInputState.Recognizing(mapMode(voiceState.mode))
                     is GlassesVoiceHandler.VoiceState.Error -> VoiceInputState.Error(voiceState.message)
                 }
                 val newVoiceText = when (voiceState) {
@@ -291,7 +300,7 @@ class HudActivity : ComponentActivity() {
             keyboardInputBuffer.append(initialChar)
         }
         hudState.value = hudState.value.copy(
-            voiceState = if (initialChar != null) VoiceInputState.Recognizing else VoiceInputState.Listening,
+            voiceState = if (initialChar != null) VoiceInputState.Recognizing() else VoiceInputState.Listening(),
             voiceText = initialChar?.toString() ?: ""
         )
     }
@@ -350,7 +359,7 @@ class HudActivity : ComponentActivity() {
     private fun updateKeyboardCaptureDisplay() {
         val text = keyboardInputBuffer.toString()
         hudState.value = hudState.value.copy(
-            voiceState = if (text.isEmpty()) VoiceInputState.Listening else VoiceInputState.Recognizing,
+            voiceState = if (text.isEmpty()) VoiceInputState.Listening() else VoiceInputState.Recognizing(),
             voiceText = text
         )
     }
@@ -1250,7 +1259,8 @@ class HudActivity : ComponentActivity() {
                 "voice_state" -> {
                     val state = msg.optString("state", "")
                     val text = msg.optString("text", "")
-                    voiceHandler.handleVoiceState(state, text)
+                    val mode = if (msg.has("mode")) msg.optString("mode", null) else null
+                    voiceHandler.handleVoiceState(state, text, mode)
                 }
 
                 "voice_result" -> {

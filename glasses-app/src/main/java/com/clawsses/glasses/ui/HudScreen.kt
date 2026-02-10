@@ -130,12 +130,20 @@ data class DisplayMessage(
 )
 
 /**
+ * Recognition mode indicator (OpenAI vs device)
+ */
+enum class RecognitionMode {
+    DEVICE,  // Android's SpeechRecognizer
+    OPENAI   // OpenAI Realtime API
+}
+
+/**
  * Voice input states for HUD display
  */
 sealed class VoiceInputState {
     object Idle : VoiceInputState()
-    object Listening : VoiceInputState()
-    object Recognizing : VoiceInputState()
+    data class Listening(val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceInputState()
+    data class Recognizing(val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceInputState()
     data class Error(val message: String) : VoiceInputState()
 }
 
@@ -388,6 +396,7 @@ fun HudScreen(
                     scrollInfo = "${state.scrollPosition + 1}/${state.messages.size}",
                     agentState = state.agentState,
                     focusedArea = state.focusedArea,
+                    voiceState = state.voiceState,
                     sessionTitle = state.currentSessionName,
                     fontFamily = monoFontFamily,
                     fontSize = fontSize
@@ -513,11 +522,24 @@ private fun TopBar(
     scrollInfo: String,
     agentState: AgentState,
     focusedArea: ChatFocusArea,
+    voiceState: VoiceInputState,
     sessionTitle: String?,
     fontFamily: FontFamily,
     fontSize: androidx.compose.ui.unit.TextUnit
 ) {
     val statusFontSize = (fontSize.value - 2).coerceAtLeast(8f).sp
+
+    // Check if voice is active
+    val isVoiceActive = voiceState is VoiceInputState.Listening ||
+                        voiceState is VoiceInputState.Recognizing ||
+                        voiceState is VoiceInputState.Error
+
+    // Get voice mode for display
+    val voiceMode = when (voiceState) {
+        is VoiceInputState.Listening -> voiceState.mode
+        is VoiceInputState.Recognizing -> voiceState.mode
+        else -> null
+    }
 
     Box(
         modifier = Modifier
@@ -535,14 +557,31 @@ private fun TopBar(
                 color = if (isConnected) HudColors.green else HudColors.error,
                 fontSize = (statusFontSize.value + 2).sp
             )
-            val stateLabel = when (agentState) {
-                AgentState.IDLE -> if (isConnected) "connected" else "disconnected"
-                AgentState.THINKING -> "thinking..."
-                AgentState.STREAMING -> "streaming..."
+            // Show voice state when active, otherwise show agent state
+            val stateLabel = when {
+                voiceState is VoiceInputState.Listening -> {
+                    val modeSuffix = if (voiceMode == RecognitionMode.OPENAI) " [AI]" else ""
+                    "listening$modeSuffix..."
+                }
+                voiceState is VoiceInputState.Recognizing -> {
+                    val modeSuffix = if (voiceMode == RecognitionMode.OPENAI) " [AI]" else ""
+                    "recognizing$modeSuffix..."
+                }
+                voiceState is VoiceInputState.Error -> "voice error"
+                agentState == AgentState.IDLE -> if (isConnected) "connected" else "disconnected"
+                agentState == AgentState.THINKING -> "thinking..."
+                agentState == AgentState.STREAMING -> "streaming..."
+                else -> ""
             }
             Text(
                 text = stateLabel,
-                color = HudColors.dimText,
+                color = if (isVoiceActive && voiceMode == RecognitionMode.OPENAI) {
+                    Color(0xFF64B5F6)  // Light blue for OpenAI
+                } else if (isVoiceActive) {
+                    HudColors.yellow  // Yellow for device/fallback voice
+                } else {
+                    HudColors.dimText
+                },
                 fontSize = statusFontSize,
                 fontFamily = fontFamily
             )

@@ -62,6 +62,7 @@ import com.clawsses.phone.openclaw.OpenClawClient
 import com.clawsses.phone.ui.settings.SettingsScreen
 import com.clawsses.phone.voice.VoiceCommandHandler
 import com.clawsses.phone.voice.VoiceLanguageManager
+import com.clawsses.phone.voice.VoiceRecognitionManager
 import com.clawsses.shared.ChatMessage
 import com.clawsses.shared.ConnectionUpdate
 import com.clawsses.shared.SessionInfo
@@ -78,13 +79,15 @@ fun MainScreen() {
     val openClawClient = remember { OpenClawClient(deviceIdentity) }
     val voiceHandler = remember { VoiceCommandHandler(context) }
     val voiceLanguageManager = remember { VoiceLanguageManager(context) }
+    val voiceRecognitionManager = remember { VoiceRecognitionManager(context) }
     val apkInstaller = remember { ApkInstaller(context) }
 
     // State
     val glassesState by glassesManager.connectionState.collectAsState()
     val openClawState by openClawClient.connectionState.collectAsState()
     val chatMessages by openClawClient.chatMessages.collectAsState()
-    val isListening by voiceHandler.isListening.collectAsState()
+    val isListening by voiceRecognitionManager.isListening.collectAsState()
+    val voiceMode by voiceRecognitionManager.activeMode.collectAsState()
     val installState by apkInstaller.installState.collectAsState()
     val selectedVoiceLanguage by voiceLanguageManager.selectedLanguage.collectAsState()
     val sessionList by openClawClient.sessionList.collectAsState()
@@ -112,7 +115,17 @@ fun MainScreen() {
     LaunchedEffect(Unit) {
         voiceHandler.initialize()
         voiceLanguageManager.queryAvailableLanguages()
+        // Set up partial result forwarding for both voice recognition managers
         voiceHandler.onPartialResult = { partialText ->
+            RokidSdkManager.sendAsrContent(partialText)
+            val stateMsg = org.json.JSONObject().apply {
+                put("type", "voice_state")
+                put("state", "recognizing")
+                put("text", partialText)
+            }
+            glassesManager.sendRawMessage(stateMsg.toString())
+        }
+        voiceRecognitionManager.onPartialResult = { partialText ->
             RokidSdkManager.sendAsrContent(partialText)
             val stateMsg = org.json.JSONObject().apply {
                 put("type", "voice_state")
@@ -211,7 +224,17 @@ fun MainScreen() {
             mainHandler.postDelayed({
                 android.util.Log.i("MainScreen", ">>> Starting voice recognition on main thread")
                 RokidSdkManager.setCommunicationDevice()
-                startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = false, languageTag = voiceLanguageManager.getActiveLanguageTag(), pendingPhotos = { pendingPhotos }, onPhotosConsumed = { pendingPhotos = emptyList() })
+                startVoiceRecognitionWithManager(
+                    voiceRecognitionManager = voiceRecognitionManager,
+                    voiceHandler = voiceHandler,
+                    openClawClient = openClawClient,
+                    glassesManager = glassesManager,
+                    mainHandler = mainHandler,
+                    isRetry = false,
+                    languageTag = voiceLanguageManager.getActiveLanguageTag(),
+                    pendingPhotos = { pendingPhotos },
+                    onPhotosConsumed = { pendingPhotos = emptyList() }
+                )
             }, 300)
         }
         glassesManager.onAiExit = {
@@ -238,7 +261,9 @@ fun MainScreen() {
                     "start_voice" -> {
                         android.util.Log.d("MainScreen", "Glasses requested voice recognition start")
                         com.clawsses.phone.glasses.RokidSdkManager.setCommunicationDevice()
-                        voiceHandler.startListening(languageTag = voiceLanguageManager.getActiveLanguageTag()) { result ->
+                        // Send voice state with mode info
+                        val modeIndicator = if (voiceRecognitionManager.isOpenAIAvailable()) "openai" else "device"
+                        voiceRecognitionManager.startListening(languageTag = voiceLanguageManager.getActiveLanguageTag()) { result ->
                             com.clawsses.phone.glasses.RokidSdkManager.clearCommunicationDevice()
                             when (result) {
                                 is VoiceCommandHandler.VoiceResult.Text -> {
@@ -275,12 +300,13 @@ fun MainScreen() {
                         val stateMsg = org.json.JSONObject().apply {
                             put("type", "voice_state")
                             put("state", "listening")
+                            put("mode", modeIndicator)
                         }
                         glassesManager.sendRawMessage(stateMsg.toString())
                     }
                     "cancel_voice" -> {
                         android.util.Log.d("MainScreen", "Glasses requested voice recognition cancel")
-                        voiceHandler.stopListening()
+                        voiceRecognitionManager.stopListening()
                         com.clawsses.phone.glasses.RokidSdkManager.clearCommunicationDevice()
                         val stateMsg = org.json.JSONObject().apply {
                             put("type", "voice_state")
@@ -379,6 +405,7 @@ fun MainScreen() {
             glassesManager.disconnect()
             openClawClient.cleanup()
             voiceHandler.cleanup()
+            voiceRecognitionManager.cleanup()
         }
     }
 
@@ -517,32 +544,45 @@ fun MainScreen() {
                     )
                 }
 
-                // Voice button
+                // Voice button with mode indicator
                 IconButton(
                     onClick = {
                         if (isListening) {
-                            voiceHandler.stopListening()
+                            voiceRecognitionManager.stopListening()
                         } else {
-                            voiceHandler.startListening(languageTag = voiceLanguageManager.getActiveLanguageTag()) { result ->
+                            voiceRecognitionManager.startListening(languageTag = voiceLanguageManager.getActiveLanguageTag()) { result ->
                                 when (result) {
                                     is VoiceCommandHandler.VoiceResult.Text -> {
-                                        openClawClient.sendMessage(result.text)
+                                        if (result.text.isNotEmpty()) {
+                                            openClawClient.sendMessage(result.text)
+                                        }
                                     }
                                     is VoiceCommandHandler.VoiceResult.Command -> {
                                         // Voice commands handled by glasses
                                     }
                                     is VoiceCommandHandler.VoiceResult.Error -> {
-                                        // Handle error
+                                        // Handle error - could show toast
                                     }
                                 }
                             }
                         }
                     }
                 ) {
+                    // Icon color indicates mode when listening:
+                    // Red = listening, with tint for OpenAI (blue) vs device (red)
+                    val iconTint = when {
+                        !isListening -> MaterialTheme.colorScheme.onSurface
+                        voiceMode == VoiceRecognitionManager.RecognitionMode.OPENAI -> Color(0xFF2196F3)  // Blue for OpenAI
+                        else -> Color.Red  // Red for device/fallback
+                    }
                     Icon(
                         if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                        contentDescription = "Voice input",
-                        tint = if (isListening) Color.Red else MaterialTheme.colorScheme.onSurface
+                        contentDescription = when {
+                            !isListening -> "Voice input"
+                            voiceMode == VoiceRecognitionManager.RecognitionMode.OPENAI -> "Listening (OpenAI)"
+                            else -> "Listening (Device)"
+                        },
+                        tint = iconTint
                     )
                 }
 
@@ -689,6 +729,7 @@ fun MainScreen() {
             onCancelInstall = { apkInstaller.cancelInstallation() },
             // Voice
             voiceLanguageManager = voiceLanguageManager,
+            voiceRecognitionManager = voiceRecognitionManager,
             // Developer
             onDebugModeChange = { enabled ->
                 if (enabled) glassesManager.enableDebugMode()
@@ -974,7 +1015,95 @@ fun SessionSelector(
 }
 
 /**
- * Start voice recognition with automatic retry on error.
+ * Start voice recognition using VoiceRecognitionManager (OpenAI with fallback).
+ */
+private fun startVoiceRecognitionWithManager(
+    voiceRecognitionManager: VoiceRecognitionManager,
+    voiceHandler: VoiceCommandHandler,
+    openClawClient: OpenClawClient,
+    glassesManager: GlassesConnectionManager,
+    mainHandler: android.os.Handler,
+    isRetry: Boolean,
+    languageTag: String? = null,
+    pendingPhotos: () -> List<String> = { emptyList() },
+    onPhotosConsumed: () -> Unit = {}
+) {
+    // Send initial voice state with mode indicator
+    val modeIndicator = if (voiceRecognitionManager.isOpenAIAvailable()) "openai" else "device"
+    val stateMsg = org.json.JSONObject().apply {
+        put("type", "voice_state")
+        put("state", "listening")
+        put("mode", modeIndicator)
+    }
+    glassesManager.sendRawMessage(stateMsg.toString())
+
+    voiceRecognitionManager.startListening(languageTag = languageTag) { result ->
+        val actualMode = voiceRecognitionManager.getModeDescription()
+        android.util.Log.i("MainScreen", ">>> Voice result received (mode=$actualMode, retry=$isRetry): $result")
+
+        when (result) {
+            is VoiceCommandHandler.VoiceResult.Text -> {
+                RokidSdkManager.clearCommunicationDevice()
+                if (result.text.isNotEmpty()) {
+                    android.util.Log.i("MainScreen", "Voice text ($actualMode): ${result.text.take(100)}")
+                    RokidSdkManager.sendAsrContent(result.text)
+                    RokidSdkManager.notifyAsrEnd()
+                    // Don't send to OpenClaw here — glasses stages the text
+                    // and sends user_input when user confirms via Send button
+                    val resultMsg = org.json.JSONObject().apply {
+                        put("type", "voice_result")
+                        put("result_type", "text")
+                        put("text", result.text)
+                    }
+                    glassesManager.sendRawMessage(resultMsg.toString())
+                    mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 1500)
+                } else {
+                    android.util.Log.i("MainScreen", "Voice: no speech detected, dismissing")
+                    RokidSdkManager.notifyAsrNone()
+                    mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 500)
+                }
+            }
+            is VoiceCommandHandler.VoiceResult.Command -> {
+                RokidSdkManager.clearCommunicationDevice()
+                android.util.Log.i("MainScreen", "Voice command ($actualMode): ${result.command}")
+                RokidSdkManager.sendAsrContent(result.command)
+                RokidSdkManager.notifyAsrEnd()
+                val resultMsg = org.json.JSONObject().apply {
+                    put("type", "voice_result")
+                    put("result_type", "command")
+                    put("text", result.command)
+                }
+                glassesManager.sendRawMessage(resultMsg.toString())
+                mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 1000)
+            }
+            is VoiceCommandHandler.VoiceResult.Error -> {
+                // VoiceRecognitionManager handles fallback internally, but if we still get an error
+                // after fallback attempt, we can retry with phone mic as last resort
+                if (!isRetry) {
+                    android.util.Log.w("MainScreen", "Voice error '${result.message}', retrying with phone mic...")
+                    RokidSdkManager.clearCommunicationDevice()
+                    mainHandler.postDelayed({
+                        startVoiceRecognition(voiceHandler, openClawClient, glassesManager, mainHandler, isRetry = true, languageTag = languageTag, pendingPhotos = pendingPhotos, onPhotosConsumed = onPhotosConsumed)
+                    }, 200)
+                } else {
+                    android.util.Log.e("MainScreen", "Voice error (after retry): ${result.message}")
+                    RokidSdkManager.clearCommunicationDevice()
+                    RokidSdkManager.notifyAsrError()
+                    val resultMsg = org.json.JSONObject().apply {
+                        put("type", "voice_result")
+                        put("result_type", "error")
+                        put("text", result.message)
+                    }
+                    glassesManager.sendRawMessage(resultMsg.toString())
+                    mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 2000)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Start voice recognition with automatic retry on error (fallback handler only).
  */
 private fun startVoiceRecognition(
     voiceHandler: VoiceCommandHandler,

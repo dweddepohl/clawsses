@@ -304,9 +304,14 @@ fun HudScreen(
             } else if (state.scrollPosition == totalItems - 1) {
                 // Scrolling to last item: use a large offset so the bottom of the
                 // item aligns with the viewport bottom (Compose clamps internally).
-                // This ensures the last message is fully visible even with large
-                // fonts or half-screen mode.
-                listState.animateScrollToItem(state.scrollPosition, Int.MAX_VALUE)
+                // During streaming, use instant scroll — animated scroll gets
+                // cancelled and restarted on every chunk, causing visible flicker.
+                val isStreaming = state.messages.lastOrNull()?.isStreaming == true
+                if (isStreaming) {
+                    listState.scrollToItem(state.scrollPosition, Int.MAX_VALUE)
+                } else {
+                    listState.animateScrollToItem(state.scrollPosition, Int.MAX_VALUE)
+                }
             } else {
                 listState.animateScrollToItem(state.scrollPosition)
             }

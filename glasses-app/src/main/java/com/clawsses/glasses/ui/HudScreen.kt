@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -280,6 +281,30 @@ fun HudScreen(
     val canScrollForward = listState.canScrollForward
     LaunchedEffect(canScrollForward) {
         onScrolledToEndChanged(!canScrollForward)
+    }
+
+    // During streaming, content grows as chunks arrive. Rather than restarting
+    // a scroll animation on every chunk (which causes flicker), we watch for the
+    // list gaining scrollable content and instantly keep pace with it.
+    LaunchedEffect(state.agentState) {
+        if (state.agentState == AgentState.STREAMING) {
+            // Check once at streaming start: is the user near the bottom?
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val nearBottom = lastVisible >= state.messages.size - 2
+            if (nearBottom) {
+                snapshotFlow {
+                    // True when there's content below the viewport
+                    listState.canScrollForward
+                }.collect { canScroll ->
+                    if (canScroll) {
+                        // Snap to the very bottom without animation — this runs on
+                        // every frame where content outgrows the viewport, keeping
+                        // pace smoothly.
+                        listState.scrollBy(Float.MAX_VALUE)
+                    }
+                }
+            }
+        }
     }
 
     // Auto-scroll when position or trigger changes

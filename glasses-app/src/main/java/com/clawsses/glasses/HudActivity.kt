@@ -1086,16 +1086,7 @@ class HudActivity : ComponentActivity() {
                 "agent_thinking" -> {
                     // Agent acknowledged request, waiting for first chunk
                     val current = hudState.value
-                    // Auto-scroll to bottom so the thinking indicator is visible
-                    // (unless user has scrolled up intentionally)
-                    val shouldAutoScroll = current.focusedArea != ChatFocusArea.CONTENT ||
-                        current.scrollPosition >= current.messages.size - 2
-                    val lastIndex = maxOf(0, current.messages.size - 1)
-                    hudState.value = current.copy(
-                        agentState = AgentState.THINKING,
-                        scrollPosition = if (shouldAutoScroll) lastIndex else current.scrollPosition,
-                        scrollTrigger = if (shouldAutoScroll) current.scrollTrigger + 1 else current.scrollTrigger
-                    )
+                    hudState.value = current.copy(agentState = AgentState.THINKING)
                     Log.d(GlassesApp.TAG, "Agent thinking")
                 }
 

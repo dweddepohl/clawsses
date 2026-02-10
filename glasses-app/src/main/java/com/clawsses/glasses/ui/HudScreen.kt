@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import kotlinx.coroutines.delay
 
 /**
  * Display size presets for the 480x640 portrait HUD
@@ -300,11 +301,11 @@ fun HudScreen(
                 val scrollDistance = -(itemsToScroll * avgItemHeight)
                 listState.animateScrollBy(scrollDistance)
             } else if (state.scrollPosition == totalItems - 1) {
-                // Scrolling to last item: when the thinking indicator is present
-                // it's an extra LazyColumn item after all messages, so scroll to
-                // that item instead to keep it visible.
-                val scrollTarget = if (state.agentState == AgentState.THINKING) totalItems else state.scrollPosition
-                listState.animateScrollToItem(scrollTarget, Int.MAX_VALUE)
+                // Scrolling to last item: use a large offset so the bottom of the
+                // item aligns with the viewport bottom (Compose clamps internally).
+                // This ensures the last message is fully visible even with large
+                // fonts or half-screen mode.
+                listState.animateScrollToItem(state.scrollPosition, Int.MAX_VALUE)
             } else {
                 listState.animateScrollToItem(state.scrollPosition)
             }
@@ -581,6 +582,22 @@ private fun ChatContentArea(
     alpha: Float,
     modifier: Modifier = Modifier
 ) {
+    // Auto-scroll to reveal the thinking indicator when it appears.
+    // Uses a pixel-based scrollBy after a frame delay so the LazyColumn
+    // has laid out the new item before we scroll.
+    val isThinking = agentState == AgentState.THINKING
+    LaunchedEffect(isThinking) {
+        if (isThinking && messages.isNotEmpty()) {
+            // Wait for the thinking indicator item to be composed and laid out
+            delay(50)
+            // Only auto-scroll if the user is near the bottom
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (lastVisible >= messages.size - 2) {
+                listState.animateScrollBy(500f)
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()

@@ -1112,7 +1112,6 @@ class HudActivity : ComponentActivity() {
                     val messages = current.messages.toMutableList()
 
                     val existingIndex = messages.indexOfFirst { it.id == id }
-                    val isNewMessage = existingIndex < 0
                     if (existingIndex >= 0) {
                         // Append chunk to existing streaming message
                         val existing = messages[existingIndex]
@@ -1131,10 +1130,7 @@ class HudActivity : ComponentActivity() {
                         ))
                     }
 
-                    // Auto-scroll to bottom during streaming (unless user scrolled up).
-                    // Only trigger a scroll animation when a NEW streaming message appears.
-                    // For ongoing chunks, HudScreen uses a snapshotFlow to keep up with
-                    // content growth without cancelling/restarting animations on every chunk.
+                    // Auto-scroll to bottom during streaming (unless user scrolled up)
                     val shouldAutoScroll = current.focusedArea != ChatFocusArea.CONTENT ||
                         current.scrollPosition >= current.messages.size - 2
 
@@ -1142,7 +1138,7 @@ class HudActivity : ComponentActivity() {
                         messages = messages,
                         agentState = AgentState.STREAMING,
                         scrollPosition = if (shouldAutoScroll) messages.size - 1 else current.scrollPosition,
-                        scrollTrigger = if (shouldAutoScroll && isNewMessage) current.scrollTrigger + 1 else current.scrollTrigger
+                        scrollTrigger = if (shouldAutoScroll) current.scrollTrigger + 1 else current.scrollTrigger
                     )
                 }
 

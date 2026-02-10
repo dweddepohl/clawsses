@@ -219,21 +219,19 @@ fun MainScreen() {
                         pendingPhotos = emptyList()
                     }
                     "start_voice" -> {
-                        android.util.Log.i("MainScreen", ">>> Glasses requested voice recognition start")
+                        android.util.Log.d("MainScreen", "Glasses requested voice recognition start")
                         com.clawsses.phone.glasses.RokidSdkManager.setCommunicationDevice()
                         voiceHandler.startListening(languageTag = voiceLanguageManager.getActiveLanguageTag()) { result ->
-                            android.util.Log.i("MainScreen", ">>> Voice result callback fired: $result")
                             com.clawsses.phone.glasses.RokidSdkManager.clearCommunicationDevice()
                             when (result) {
                                 is VoiceCommandHandler.VoiceResult.Text -> {
-                                    android.util.Log.i("MainScreen", ">>> Voice result text: '${result.text.take(100)}', sending to glasses...")
+                                    android.util.Log.d("MainScreen", "Voice result text: ${result.text.take(100)}")
                                     val resultMsg = org.json.JSONObject().apply {
                                         put("type", "voice_result")
                                         put("result_type", "text")
                                         put("text", result.text)
                                     }
                                     glassesManager.sendRawMessage(resultMsg.toString())
-                                    android.util.Log.i("MainScreen", ">>> voice_result message sent to glasses")
                                     // Don't send to OpenClaw here — glasses stages the text
                                     // and sends user_input when user confirms via Send button
                                 }

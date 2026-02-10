@@ -414,10 +414,7 @@ class GlassesConnectionManager(private val context: Context) {
                 Log.w(TAG, "sendRawMessage: debugServer.sendToGlasses returned false (no client?)")
             }
         } else {
-            val sent = RokidSdkManager.sendToGlasses(jsonMessage)
-            if (!sent) {
-                Log.w(TAG, "sendRawMessage: RokidSdkManager.sendToGlasses returned false (BT issue?)")
-            }
+            RokidSdkManager.sendToGlasses(jsonMessage)
         }
     }
 

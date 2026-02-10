@@ -300,11 +300,11 @@ fun HudScreen(
                 val scrollDistance = -(itemsToScroll * avgItemHeight)
                 listState.animateScrollBy(scrollDistance)
             } else if (state.scrollPosition == totalItems - 1) {
-                // Scrolling to last item: use a large offset so the bottom of the
-                // item aligns with the viewport bottom (Compose clamps internally).
-                // This ensures the last message is fully visible even with large
-                // fonts or half-screen mode.
-                listState.animateScrollToItem(state.scrollPosition, Int.MAX_VALUE)
+                // Scrolling to last item: when the thinking indicator is present
+                // it's an extra LazyColumn item after all messages, so scroll to
+                // that item instead to keep it visible.
+                val scrollTarget = if (state.agentState == AgentState.THINKING) totalItems else state.scrollPosition
+                listState.animateScrollToItem(scrollTarget, Int.MAX_VALUE)
             } else {
                 listState.animateScrollToItem(state.scrollPosition)
             }
@@ -581,17 +581,6 @@ private fun ChatContentArea(
     alpha: Float,
     modifier: Modifier = Modifier
 ) {
-    // Auto-scroll to show thinking indicator when it appears
-    LaunchedEffect(agentState) {
-        if (agentState == AgentState.THINKING) {
-            // The thinking indicator is added as an extra item after messages,
-            // so we scroll to show it (messages.size is its index since items are 0-indexed)
-            val thinkingIndicatorIndex = messages.size
-            // Use a large offset to align the indicator at the bottom of the viewport
-            listState.animateScrollToItem(thinkingIndicatorIndex, Int.MAX_VALUE)
-        }
-    }
-
     Box(
         modifier = modifier
             .fillMaxWidth()

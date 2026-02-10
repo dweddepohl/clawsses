@@ -860,6 +860,12 @@ class HudActivity : ComponentActivity() {
         if (voiceHandler.isListening()) {
             voiceHandler.cancel()
         } else {
+            // Clear any previous staging text when starting a fresh voice session
+            // (unless user has explicitly staged content they're adding to)
+            val current = hudState.value
+            if (!current.showInputStaging) {
+                hudState.value = current.copy(stagingText = "")
+            }
             // Don't pass a result callback — voice_result messages from the phone
             // are handled directly in handlePhoneMessage to avoid the AI key path
             // issue where onResult is never set because startVoice() isn't called.
@@ -1080,7 +1086,16 @@ class HudActivity : ComponentActivity() {
                 "agent_thinking" -> {
                     // Agent acknowledged request, waiting for first chunk
                     val current = hudState.value
-                    hudState.value = current.copy(agentState = AgentState.THINKING)
+                    // Auto-scroll to bottom so the thinking indicator is visible
+                    // (unless user has scrolled up intentionally)
+                    val shouldAutoScroll = current.focusedArea != ChatFocusArea.CONTENT ||
+                        current.scrollPosition >= current.messages.size - 2
+                    val lastIndex = maxOf(0, current.messages.size - 1)
+                    hudState.value = current.copy(
+                        agentState = AgentState.THINKING,
+                        scrollPosition = if (shouldAutoScroll) lastIndex else current.scrollPosition,
+                        scrollTrigger = if (shouldAutoScroll) current.scrollTrigger + 1 else current.scrollTrigger
+                    )
                     Log.d(GlassesApp.TAG, "Agent thinking")
                 }
 
@@ -1230,6 +1245,7 @@ class HudActivity : ComponentActivity() {
                 "voice_result" -> {
                     val resultType = msg.optString("result_type", "text")
                     val text = msg.optString("text", "")
+                    Log.i(GlassesApp.TAG, ">>> voice_result received: type=$resultType, text='${text.take(100)}'")
                     // Update voice handler state (sets to Idle, clears onResult)
                     voiceHandler.handleVoiceResult(resultType, text)
                     // Stage text directly — don't rely on onResult callback
@@ -1237,6 +1253,7 @@ class HudActivity : ComponentActivity() {
                     when (resultType) {
                         "text" -> {
                             val trimmed = text.trim()
+                            Log.i(GlassesApp.TAG, ">>> voice_result text trimmed: '${trimmed.take(100)}', isEmpty=${trimmed.isEmpty()}")
                             if (trimmed.isNotEmpty()) {
                                 stageVoiceText(trimmed)
                             }

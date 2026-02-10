@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import kotlinx.coroutines.delay
 
 /**
  * Display size presets for the 480x640 portrait HUD
@@ -600,6 +601,22 @@ private fun ChatContentArea(
     alpha: Float,
     modifier: Modifier = Modifier
 ) {
+    // Auto-scroll to reveal the thinking indicator when it appears.
+    // Uses a pixel-based scrollBy after a frame delay so the LazyColumn
+    // has laid out the new item before we scroll.
+    val isThinking = agentState == AgentState.THINKING
+    LaunchedEffect(isThinking) {
+        if (isThinking && messages.isNotEmpty()) {
+            // Wait for the thinking indicator item to be composed and laid out
+            delay(50)
+            // Only auto-scroll if the user is near the bottom
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (lastVisible >= messages.size - 2) {
+                listState.animateScrollBy(500f)
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()

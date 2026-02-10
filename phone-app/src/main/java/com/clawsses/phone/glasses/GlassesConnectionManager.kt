@@ -101,8 +101,18 @@ class GlassesConnectionManager(private val context: Context) {
     var onAiExit: (() -> Unit)? = null
 
     init {
-        // Set up SDK callbacks
+        // Set up SDK callbacks first so any state transitions are captured
         setupSdkCallbacks()
+
+        // Check if the SDK singleton is already connected (e.g. Activity was recreated
+        // while the process and Bluetooth connection are still alive). This prevents the
+        // new manager instance from starting at Disconnected and killing the foreground
+        // service + BT connection.
+        if (RokidSdkManager.isReady() && RokidSdkManager.isConnected()) {
+            val name = RokidSdkManager.getSavedDeviceName() ?: "Rokid Glasses"
+            _connectionState.value = ConnectionState.Connected(name)
+            Log.i(TAG, "SDK already connected on init — restored Connected state ($name)")
+        }
     }
 
     private fun setupSdkCallbacks() {
@@ -132,12 +142,16 @@ class GlassesConnectionManager(private val context: Context) {
         }
 
         RokidSdkManager.onBluetoothFailed = { error ->
-            _connectionState.value = ConnectionState.Error("Bluetooth failed: $error")
             Log.e(TAG, "SDK: Bluetooth failed: $error")
 
-            // If this failure happened during auto-reconnect, try again
-            if (!userInitiatedDisconnect && !_debugModeEnabled.value && reconnectAttempts > 0) {
+            // Schedule reconnect if this wasn't user-initiated.
+            // This covers both: failures during active reconnect attempts AND
+            // failures from the initial tryAutoReconnectOnStartup() call.
+            if (!userInitiatedDisconnect && !_debugModeEnabled.value &&
+                RokidSdkManager.hasSavedConnectionInfo()) {
                 scheduleReconnect()
+            } else {
+                _connectionState.value = ConnectionState.Error("Bluetooth failed: $error")
             }
         }
 
@@ -313,11 +327,22 @@ class GlassesConnectionManager(private val context: Context) {
     /**
      * Try to auto-reconnect to previously paired glasses on app startup.
      * Only attempts if there's saved connection info and not in debug mode.
-     * Returns true if reconnection was initiated, false if no saved info exists.
+     *
+     * If the SDK singleton reports it's already connected (e.g. Activity recreation
+     * while process is alive), this is a no-op since the init block already set
+     * Connected state.
+     *
+     * Returns true if reconnection was initiated, false if no action needed.
      */
     fun tryAutoReconnectOnStartup(): Boolean {
         if (_debugModeEnabled.value) {
             Log.d(TAG, "Auto-reconnect skipped: debug mode enabled")
+            return false
+        }
+
+        // Already connected (set by init block)? No action needed.
+        if (_connectionState.value is ConnectionState.Connected) {
+            Log.d(TAG, "Auto-reconnect skipped: already connected")
             return false
         }
 
@@ -336,8 +361,13 @@ class GlassesConnectionManager(private val context: Context) {
 
         Log.i(TAG, "Attempting auto-reconnect to previously paired glasses")
         userInitiatedDisconnect = false
-        _connectionState.value = ConnectionState.Connecting
-        return RokidSdkManager.reconnect()
+
+        // Use scheduleReconnect which has proper exponential backoff and retry.
+        // This is more robust than calling reconnect() directly because if the
+        // first attempt fails (silently or via onBluetoothFailed), scheduleReconnect
+        // will keep trying.
+        scheduleReconnect()
+        return true
     }
 
     /**
@@ -355,7 +385,10 @@ class GlassesConnectionManager(private val context: Context) {
     }
 
     /**
-     * Disconnect from glasses (user-initiated)
+     * Disconnect from glasses (user-initiated).
+     * This sets userInitiatedDisconnect to prevent auto-reconnect and explicitly
+     * stops the foreground service. Pairing info is preserved so the user can
+     * reconnect later without re-pairing.
      */
     fun disconnect() {
         userInitiatedDisconnect = true
@@ -367,6 +400,9 @@ class GlassesConnectionManager(private val context: Context) {
         }
         _connectionState.value = ConnectionState.Disconnected
         _wifiP2PConnected.value = false
+        // Explicitly stop the foreground service on user-initiated disconnect.
+        // The LaunchedEffect won't stop it because hasSavedConnectionInfo() is still true.
+        com.clawsses.phone.service.GlassesConnectionService.stop(context)
     }
 
     /**

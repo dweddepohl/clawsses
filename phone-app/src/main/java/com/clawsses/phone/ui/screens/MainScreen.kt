@@ -134,7 +134,10 @@ fun MainScreen() {
     }
 
     // Start/stop foreground service based on glasses connection state,
-    // and send current chat history when glasses connect
+    // and send current chat history when glasses connect.
+    // IMPORTANT: Don't stop the service during Reconnecting — killing the foreground
+    // service drops the wake lock and lets Android kill the Bluetooth connection,
+    // making reconnection impossible. Only stop on true Disconnected (not reconnecting).
     LaunchedEffect(glassesState) {
         when (glassesState) {
             is GlassesConnectionManager.ConnectionState.Connected -> {
@@ -148,8 +151,19 @@ fun MainScreen() {
                 }
             }
             is GlassesConnectionManager.ConnectionState.Disconnected -> {
-                android.util.Log.i("MainScreen", "Glasses disconnected — stopping foreground service")
-                com.clawsses.phone.service.GlassesConnectionService.stop(context)
+                // Only stop the service if we're truly disconnected (no saved pairing to reconnect to).
+                // If we have a pairing, the service keeps BT alive for auto-reconnect.
+                if (!RokidSdkManager.hasSavedConnectionInfo()) {
+                    android.util.Log.i("MainScreen", "Glasses disconnected (no pairing) — stopping foreground service")
+                    com.clawsses.phone.service.GlassesConnectionService.stop(context)
+                } else {
+                    android.util.Log.i("MainScreen", "Glasses disconnected but paired — keeping foreground service for reconnect")
+                }
+            }
+            is GlassesConnectionManager.ConnectionState.Reconnecting -> {
+                // Keep foreground service alive during reconnection attempts
+                android.util.Log.i("MainScreen", "Glasses reconnecting — keeping foreground service")
+                com.clawsses.phone.service.GlassesConnectionService.start(context)
             }
             else -> {}
         }

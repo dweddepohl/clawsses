@@ -725,9 +725,13 @@ class OpenClawClient(
     }
 
     private fun notifyConnectionUpdate(connected: Boolean, sessionId: String? = null) {
+        val sessionName = sessionId?.let { id ->
+            _sessionList.value.firstOrNull { it.key == id }?.name
+        }
         onConnectionUpdate?.invoke(ConnectionUpdate(
             connected = connected,
-            sessionId = sessionId
+            sessionId = sessionId,
+            sessionName = sessionName
         ))
     }
 

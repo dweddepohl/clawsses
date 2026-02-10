@@ -297,9 +297,14 @@ fun MainScreen() {
                         android.util.Log.d("MainScreen", "Glasses requested current state")
                         // Send OpenClaw connection status
                         val isConnected = openClawState is OpenClawClient.ConnectionState.Connected
+                        val currentKey = openClawClient.currentSessionKey.value
+                        val currentName = currentKey?.let { key ->
+                            openClawClient.sessionList.value.firstOrNull { it.key == key }?.name
+                        }
                         val connUpdate = ConnectionUpdate(
                             connected = isConnected,
-                            sessionId = openClawClient.currentSessionKey.value
+                            sessionId = currentKey,
+                            sessionName = currentName
                         )
                         glassesManager.sendRawMessage(connUpdate.toJson())
                         // Send current chat history

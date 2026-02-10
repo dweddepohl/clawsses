@@ -711,11 +711,20 @@ class HudActivity : ComponentActivity() {
                     val selected = current.availableSessions[current.selectedSessionIndex]
                     if (selected.key == NEW_SESSION_KEY) {
                         createNewSession()
+                        hudState.value = current.copy(
+                            showSessionPicker = false,
+                            currentSessionName = null
+                        )
                     } else {
                         switchToSession(selected.key)
+                        hudState.value = current.copy(
+                            showSessionPicker = false,
+                            currentSessionName = selected.name
+                        )
                     }
+                } else {
+                    hudState.value = current.copy(showSessionPicker = false)
                 }
-                hudState.value = current.copy(showSessionPicker = false)
             }
             Gesture.DOUBLE_TAP -> {
                 hudState.value = current.copy(showSessionPicker = false)
@@ -1150,17 +1159,20 @@ class HudActivity : ComponentActivity() {
                 "connection_update" -> {
                     val connected = msg.optBoolean("connected", false)
                     val sessionKey = msg.optString("sessionId", "")
+                    val sessionName = msg.optString("sessionName", "")
 
                     val current = hudState.value
                     val newSessionKey = sessionKey.ifEmpty { current.currentSessionKey }
+                    val newSessionName = sessionName.ifEmpty { current.currentSessionName }
                     val sessionChanged = newSessionKey != current.currentSessionKey
                     hudState.value = current.copy(
                         isConnected = connected,
                         currentSessionKey = newSessionKey,
+                        currentSessionName = newSessionName,
                         showSessionPicker = if (sessionChanged) false else current.showSessionPicker
                     )
 
-                    Log.d(GlassesApp.TAG, "Connection update: connected=$connected, session=$sessionKey")
+                    Log.d(GlassesApp.TAG, "Connection update: connected=$connected, session=$sessionKey, name=$sessionName")
                 }
 
                 "session_list" -> {
@@ -1211,10 +1223,14 @@ class HudActivity : ComponentActivity() {
                     // Default selection to the current session (offset by 1 for the New Session entry)
                     val currentIndex = sessionsWithNew.indexOfFirst { it.key == currentSessionKey }
                         .coerceAtLeast(0)
+                    // Extract the current session's name from the list
+                    val resolvedSessionName = sessions.firstOrNull { it.key == currentSessionKey }?.name
+                        ?: current.currentSessionName
                     hudState.value = current.copy(
                         showSessionPicker = true,
                         availableSessions = sessionsWithNew,
                         currentSessionKey = currentSessionKey.ifEmpty { current.currentSessionKey },
+                        currentSessionName = resolvedSessionName,
                         selectedSessionIndex = currentIndex
                     )
 

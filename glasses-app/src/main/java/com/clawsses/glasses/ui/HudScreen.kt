@@ -190,6 +190,7 @@ data class ChatHudState(
     val showSessionPicker: Boolean = false,
     val availableSessions: List<SessionPickerInfo> = emptyList(),
     val currentSessionKey: String? = null,
+    val currentSessionName: String? = null,
     val selectedSessionIndex: Int = 0,
     // More menu
     val showMoreMenu: Boolean = false,
@@ -381,6 +382,7 @@ fun HudScreen(
                     scrollInfo = "${state.scrollPosition + 1}/${state.messages.size}",
                     agentState = state.agentState,
                     focusedArea = state.focusedArea,
+                    sessionTitle = state.currentSessionName,
                     fontFamily = monoFontFamily,
                     fontSize = fontSize
                 )
@@ -505,20 +507,20 @@ private fun TopBar(
     scrollInfo: String,
     agentState: AgentState,
     focusedArea: ChatFocusArea,
+    sessionTitle: String?,
     fontFamily: FontFamily,
     fontSize: androidx.compose.ui.unit.TextUnit
 ) {
     val statusFontSize = (fontSize.value - 2).coerceAtLeast(8f).sp
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 4.dp)
     ) {
-        // Connection dot + state label
+        // Connection dot + state label (left-aligned)
         Row(
+            modifier = Modifier.align(Alignment.CenterStart),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -540,8 +542,25 @@ private fun TopBar(
             )
         }
 
-        // Mode indicator + scroll info
+        // Session title (centered)
+        if (!sessionTitle.isNullOrEmpty()) {
+            Text(
+                text = sessionTitle,
+                color = HudColors.primaryText,
+                fontSize = statusFontSize,
+                fontFamily = fontFamily,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(0.45f)
+            )
+        }
+
+        // Mode indicator + scroll info (right-aligned)
         Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

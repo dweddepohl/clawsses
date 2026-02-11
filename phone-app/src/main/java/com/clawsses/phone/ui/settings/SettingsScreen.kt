@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.sp
 import com.clawsses.phone.glasses.ApkInstaller
 import com.clawsses.phone.glasses.GlassesConnectionManager
 import com.clawsses.phone.openclaw.OpenClawClient
+import com.clawsses.phone.tts.ElevenLabsClient
+import com.clawsses.phone.tts.TtsSettingsManager
 import com.clawsses.phone.util.isEmulator
 import com.clawsses.phone.voice.VoiceLanguageManager
 import com.clawsses.phone.voice.VoiceRecognitionManager
@@ -61,6 +63,9 @@ fun SettingsScreen(
     // Voice
     voiceLanguageManager: VoiceLanguageManager,
     voiceRecognitionManager: VoiceRecognitionManager? = null,
+    // TTS
+    ttsSettingsManager: TtsSettingsManager? = null,
+    elevenLabsClient: ElevenLabsClient? = null,
     // Developer
     onDebugModeChange: (Boolean) -> Unit,
     // Navigation
@@ -138,6 +143,17 @@ fun SettingsScreen(
                     voiceLanguageManager = voiceLanguageManager,
                     voiceRecognitionManager = voiceRecognitionManager,
                 )
+            }
+
+            // TTS section
+            if (ttsSettingsManager != null && elevenLabsClient != null) {
+                item { SectionHeader("Voice Responses") }
+                item {
+                    TtsSection(
+                        ttsSettingsManager = ttsSettingsManager,
+                        elevenLabsClient = elevenLabsClient,
+                    )
+                }
             }
 
             // Developer section (emulator only)

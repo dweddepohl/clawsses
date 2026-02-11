@@ -61,12 +61,16 @@ import com.clawsses.phone.glasses.WakeSignalManager
 import com.clawsses.phone.openclaw.DeviceIdentity
 import com.clawsses.phone.openclaw.OpenClawClient
 import com.clawsses.phone.ui.settings.SettingsScreen
+import com.clawsses.phone.tts.ElevenLabsClient
+import com.clawsses.phone.tts.TtsPlaybackManager
+import com.clawsses.phone.tts.TtsSettingsManager
 import com.clawsses.phone.voice.VoiceCommandHandler
 import com.clawsses.phone.voice.VoiceLanguageManager
 import com.clawsses.phone.voice.VoiceRecognitionManager
 import com.clawsses.shared.ChatMessage
 import com.clawsses.shared.ConnectionUpdate
 import com.clawsses.shared.SessionInfo
+import com.clawsses.shared.TtsState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,6 +86,9 @@ fun MainScreen() {
     val voiceLanguageManager = remember { VoiceLanguageManager(context) }
     val voiceRecognitionManager = remember { VoiceRecognitionManager(context) }
     val apkInstaller = remember { ApkInstaller(context) }
+    val ttsSettingsManager = remember { TtsSettingsManager(context) }
+    val elevenLabsClient = remember { ElevenLabsClient() }
+    val ttsPlaybackManager = remember { TtsPlaybackManager(context, elevenLabsClient, ttsSettingsManager) }
 
     // State
     val glassesState by glassesManager.connectionState.collectAsState()
@@ -95,6 +102,8 @@ fun MainScreen() {
     val currentSessionKey by openClawClient.currentSessionKey.collectAsState()
     val unreadSessions by openClawClient.unreadSessions.collectAsState()
     val wakeOnStreamEnabled by glassesManager.wakeSignalManager.enabled.collectAsState()
+    val ttsEnabled by ttsSettingsManager.isEnabled.collectAsState()
+    val ttsVoiceName by ttsSettingsManager.selectedVoiceName.collectAsState()
 
     // Persist OpenClaw settings in SharedPreferences
     val prefs = remember { context.getSharedPreferences("clawsses", android.content.Context.MODE_PRIVATE) }
@@ -152,6 +161,17 @@ fun MainScreen() {
         }
     }
 
+    // Sync TTS state to glasses when settings change
+    LaunchedEffect(ttsEnabled, ttsVoiceName) {
+        if (glassesState is GlassesConnectionManager.ConnectionState.Connected) {
+            val ttsStateMsg = TtsState(
+                enabled = ttsEnabled,
+                voiceName = ttsVoiceName
+            )
+            glassesManager.sendRawMessage(ttsStateMsg.toJson())
+        }
+    }
+
     // Start/stop foreground service based on glasses connection state,
     // and send current chat history when glasses connect.
     // IMPORTANT: Don't stop the service during Reconnecting — killing the foreground
@@ -168,6 +188,12 @@ fun MainScreen() {
                     android.util.Log.i("MainScreen", "Sending ${currentMessages.size} history messages to newly connected glasses")
                     glassesManager.sendRawMessage(buildChatHistoryJson(currentMessages))
                 }
+                // Send TTS state to glasses
+                val ttsStateMsg = TtsState(
+                    enabled = ttsSettingsManager.isEnabled.value,
+                    voiceName = ttsSettingsManager.selectedVoiceName.value
+                )
+                glassesManager.sendRawMessage(ttsStateMsg.toJson())
             }
             is GlassesConnectionManager.ConnectionState.Disconnected -> {
                 // Only stop the service if we're truly disconnected (no saved pairing to reconnect to).
@@ -242,6 +268,11 @@ fun MainScreen() {
             // Streaming complete — notify wake manager
             glassesManager.notifyStreamEnd(msg.id)
             glassesManager.sendRawMessage(msg.toJson())
+            // Trigger TTS if enabled
+            val fullText = openClawClient.chatMessages.value.lastOrNull { it.id == msg.id }?.content
+            if (fullText != null) {
+                ttsPlaybackManager.onMessageComplete(fullText)
+            }
         }
         openClawClient.onSessionList = { msg ->
             glassesManager.sendRawMessage(msg.toJson())
@@ -409,6 +440,23 @@ fun MainScreen() {
                         // Send current chat history
                         val currentMessages = openClawClient.chatMessages.value
                         glassesManager.sendRawMessage(buildChatHistoryJson(currentMessages))
+                        // Send TTS state
+                        val ttsStateMsg = TtsState(
+                            enabled = ttsSettingsManager.isEnabled.value,
+                            voiceName = ttsSettingsManager.selectedVoiceName.value
+                        )
+                        glassesManager.sendRawMessage(ttsStateMsg.toJson())
+                    }
+                    "tts_toggle" -> {
+                        val enabled = json.optBoolean("enabled", false)
+                        android.util.Log.d("MainScreen", "TTS toggle from glasses: $enabled")
+                        ttsSettingsManager.setEnabled(enabled)
+                        // Send updated state back to glasses
+                        val ttsStateMsg = TtsState(
+                            enabled = enabled,
+                            voiceName = ttsSettingsManager.selectedVoiceName.value
+                        )
+                        glassesManager.sendRawMessage(ttsStateMsg.toJson())
                     }
                     "take_photo" -> {
                         android.util.Log.d("MainScreen", "Glasses requested photo capture")
@@ -807,6 +855,9 @@ fun MainScreen() {
             // Voice
             voiceLanguageManager = voiceLanguageManager,
             voiceRecognitionManager = voiceRecognitionManager,
+            // TTS
+            ttsSettingsManager = ttsSettingsManager,
+            elevenLabsClient = elevenLabsClient,
             // Developer
             onDebugModeChange = { enabled ->
                 if (enabled) glassesManager.enableDebugMode()

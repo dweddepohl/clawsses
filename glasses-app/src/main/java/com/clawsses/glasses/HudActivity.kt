@@ -834,6 +834,17 @@ class HudActivity : ComponentActivity() {
                     selectedSlashIndex = 0
                 )
             }
+            MoreMenuItem.VOICE -> {
+                // Toggle TTS and notify phone
+                val newEnabled = !current.ttsEnabled
+                hudState.value = current.copy(ttsEnabled = newEnabled)
+                val json = JSONObject().apply {
+                    put("type", "tts_toggle")
+                    put("enabled", newEnabled)
+                }
+                phoneConnection.sendToPhone(json.toString())
+                Log.d(GlassesApp.TAG, "TTS toggle: $newEnabled")
+            }
             else -> {}
         }
     }
@@ -1465,6 +1476,18 @@ class HudActivity : ComponentActivity() {
                     // Send acknowledgment back to phone
                     phoneConnection.sendToPhone("""{"type":"wake_ack","ready":true,"timestamp":${System.currentTimeMillis()}}""")
                     Log.d(GlassesApp.TAG, "Sent wake_ack to phone")
+                }
+
+                "tts_state" -> {
+                    // TTS state sync from phone
+                    val enabled = msg.optBoolean("enabled", false)
+                    val voiceName = if (msg.has("voiceName") && !msg.isNull("voiceName")) {
+                        msg.optString("voiceName", null)
+                    } else null
+                    hudState.update { current ->
+                        current.copy(ttsEnabled = enabled)
+                    }
+                    Log.d(GlassesApp.TAG, "TTS state: enabled=$enabled, voice=$voiceName")
                 }
 
                 else -> {

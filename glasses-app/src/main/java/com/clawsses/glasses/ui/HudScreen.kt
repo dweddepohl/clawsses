@@ -45,6 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import kotlinx.coroutines.delay
 
 /**
@@ -116,6 +119,7 @@ enum class MoreMenuItem(val icon: String, val label: String, val displaySize: Hu
     FONT_COMFORTABLE("Aa", "Comfortable", HudDisplaySize.COMFORTABLE),
     FONT_LARGE("Aa", "Large", HudDisplaySize.LARGE),
     SLASH("/", "Slash Cmds"),
+    VOICE("\uD83D\uDD0A", "Voice"),  // speaker icon - label is dynamic
 }
 
 /**
@@ -226,7 +230,9 @@ data class ChatHudState(
     val newPrependCount: Int = 0,  // Number of newly prepended messages (for fade-in animation)
     // Wake notification (shown briefly when glasses wakes from standby due to new content)
     val showWakeNotification: Boolean = false,
-    val wakeReason: String? = null  // "stream_content", "new_message", "cron_message"
+    val wakeReason: String? = null,  // "stream_content", "new_message", "cron_message"
+    // TTS state (voice responses)
+    val ttsEnabled: Boolean = false
 ) {
     /** Total number of messages */
     val totalMessages: Int get() = messages.size
@@ -419,6 +425,7 @@ fun HudScreen(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 // CONTENT AREA — chat messages
+                val showScrollHints = contentFocused && !state.isScrolledToEnd
                 ChatContentArea(
                     messages = state.messages,
                     agentState = state.agentState,
@@ -452,17 +459,23 @@ fun HudScreen(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // MENU BAR
-                ChatMenuBar(
-                    selectedIndex = state.menuBarIndex,
-                    isFocused = menuFocused,
-                    hudPosition = state.hudPosition,
-                    batteryLevel = state.batteryLevel,
-                    batteryCharging = state.batteryCharging,
-                    currentTime = state.currentTime,
-                    fontFamily = monoFontFamily,
-                    alpha = menuAlpha
-                )
+                // MENU BAR or SCROLL HINTS (scroll hints replace menu bar when scrolling)
+                if (showScrollHints) {
+                    ScrollHints(
+                        fontFamily = monoFontFamily
+                    )
+                } else {
+                    ChatMenuBar(
+                        selectedIndex = state.menuBarIndex,
+                        isFocused = menuFocused,
+                        hudPosition = state.hudPosition,
+                        batteryLevel = state.batteryLevel,
+                        batteryCharging = state.batteryCharging,
+                        currentTime = state.currentTime,
+                        fontFamily = monoFontFamily,
+                        alpha = menuAlpha
+                    )
+                }
             }
         }
 
@@ -489,6 +502,7 @@ fun HudScreen(
             MoreMenuOverlay(
                 selectedIndex = state.selectedMoreIndex,
                 currentDisplaySize = state.displaySize,
+                ttsEnabled = state.ttsEnabled,
                 fontFamily = monoFontFamily
             )
         }
@@ -804,7 +818,7 @@ private fun ChatMessageItem(
         false
     }
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .let {
@@ -814,10 +828,25 @@ private fun ChatMessageItem(
                     it.padding(end = 16.dp)
                 }
             },
-        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top
     ) {
+        // Mascot avatar for assistant messages
+        if (!isUser) {
+            Image(
+                painter = painterResource(id = R.mipmap.ic_launcher),
+                contentDescription = "Assistant",
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+
         Box(
             modifier = Modifier
+                .weight(1f, fill = false)
                 .let {
                     if (isUser) {
                         it.background(
@@ -1172,6 +1201,34 @@ private fun InputStagingArea(
 }
 
 // ============================================================================
+// SCROLL HINTS
+// ============================================================================
+
+@Composable
+private fun ScrollHints(
+    fontFamily: FontFamily,
+    modifier: Modifier = Modifier
+) {
+    val hintFontSize = 10.sp
+
+    Box(
+        modifier = modifier
+            .background(
+                Color.Black.copy(alpha = 0.85f),
+                RoundedCornerShape(6.dp)
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = "1\u00D7tap: scroll to bottom \u2022 2\u00D7tap: exit scroll",
+            color = HudColors.cyan,
+            fontSize = hintFontSize,
+            fontFamily = fontFamily
+        )
+    }
+}
+
+// ============================================================================
 // MENU BAR
 // ============================================================================
 
@@ -1426,6 +1483,7 @@ private fun SessionPickerOverlay(
 private fun MoreMenuOverlay(
     selectedIndex: Int,
     currentDisplaySize: HudDisplaySize,
+    ttsEnabled: Boolean,
     fontFamily: FontFamily,
     modifier: Modifier = Modifier
 ) {
@@ -1454,7 +1512,16 @@ private fun MoreMenuOverlay(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items.forEachIndexed { itemIndex, item ->
                     val isSelected = itemIndex == selectedIndex
-                    val isActive = item.displaySize == currentDisplaySize
+                    val isActive = when (item) {
+                        MoreMenuItem.VOICE -> ttsEnabled
+                        else -> item.displaySize == currentDisplaySize
+                    }
+
+                    // Dynamic label for VOICE item
+                    val displayLabel = when (item) {
+                        MoreMenuItem.VOICE -> if (ttsEnabled) "Voice On" else "Voice Off"
+                        else -> item.label
+                    }
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1468,7 +1535,7 @@ private fun MoreMenuOverlay(
                             fontSize = 14.sp,
                             fontFamily = fontFamily
                         )
-                        // Active checkmark for font size items
+                        // Active checkmark for font size items and voice toggle
                         Text(
                             text = if (isActive) "\u2713" else " ",
                             color = HudColors.green,
@@ -1485,7 +1552,7 @@ private fun MoreMenuOverlay(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = item.label,
+                            text = displayLabel,
                             color = if (isSelected) HudColors.green else HudColors.dimText,
                             fontSize = itemFontSize,
                             fontFamily = fontFamily

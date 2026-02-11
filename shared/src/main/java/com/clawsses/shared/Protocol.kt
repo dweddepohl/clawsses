@@ -334,6 +334,41 @@ data class WakeAck(
 }
 
 // ============================================
+// TTS State Protocol (Phone <-> Glasses)
+// ============================================
+
+/**
+ * TTS toggle request from glasses to phone.
+ * Glasses sends this when user toggles voice responses in the More menu.
+ */
+data class TtsToggle(
+    @SerializedName("type") val type: String = "tts_toggle",
+    @SerializedName("enabled") val enabled: Boolean
+) {
+    fun toJson(): String = gson.toJson(this)
+
+    companion object {
+        fun fromJson(json: String): TtsToggle = gson.fromJson(json, TtsToggle::class.java)
+    }
+}
+
+/**
+ * TTS state update from phone to glasses.
+ * Phone sends this when TTS settings change or on connection.
+ */
+data class TtsState(
+    @SerializedName("type") val type: String = "tts_state",
+    @SerializedName("enabled") val enabled: Boolean,
+    @SerializedName("voiceName") val voiceName: String? = null
+) {
+    fun toJson(): String = gson.toJson(this)
+
+    companion object {
+        fun fromJson(json: String): TtsState = gson.fromJson(json, TtsState::class.java)
+    }
+}
+
+// ============================================
 // Utility
 // ============================================
 

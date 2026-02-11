@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import com.clawsses.phone.glasses.ApkInstaller
 import com.clawsses.phone.glasses.GlassesConnectionManager
 import com.clawsses.phone.glasses.RokidSdkManager
+import com.clawsses.phone.glasses.WakeSignalManager
 import com.clawsses.phone.openclaw.DeviceIdentity
 import com.clawsses.phone.openclaw.OpenClawClient
 import com.clawsses.phone.ui.settings.SettingsScreen
@@ -93,6 +94,7 @@ fun MainScreen() {
     val sessionList by openClawClient.sessionList.collectAsState()
     val currentSessionKey by openClawClient.currentSessionKey.collectAsState()
     val unreadSessions by openClawClient.unreadSessions.collectAsState()
+    val wakeOnStreamEnabled by glassesManager.wakeSignalManager.enabled.collectAsState()
 
     // Persist OpenClaw settings in SharedPreferences
     val prefs = remember { context.getSharedPreferences("clawsses", android.content.Context.MODE_PRIVATE) }
@@ -213,7 +215,12 @@ fun MainScreen() {
     // Wire OpenClaw client callbacks to forward to glasses
     LaunchedEffect(Unit) {
         openClawClient.onChatMessage = { msg ->
-            glassesManager.sendRawMessage(msg.toJson())
+            // Check if this is a spontaneous message (not preceded by our stream start)
+            // This could be a cron job message or a message from another session
+            val isNewMessage = msg.role == "assistant" && !glassesManager.wakeSignalManager.wakeState.value.let {
+                it is WakeSignalManager.WakeState.Awake || it is WakeSignalManager.WakeState.WakingUp
+            }
+            glassesManager.sendRawMessage(msg.toJson(), isNewMessage = isNewMessage)
         }
         openClawClient.onChatHistory = { messages ->
             // Full history reload (initial load or session switch) — reset glasses limit
@@ -223,12 +230,17 @@ fun MainScreen() {
             glassesManager.sendRawMessage(json)
         }
         openClawClient.onAgentThinking = { msg ->
-            glassesManager.sendRawMessage(msg.toJson())
+            // Agent is about to start streaming — notify wake manager
+            glassesManager.notifyStreamStart(msg.id)
+            glassesManager.sendRawMessage(msg.toJson(), isStreamContent = true)
         }
         openClawClient.onChatStream = { msg ->
-            glassesManager.sendRawMessage(msg.toJson())
+            // Streaming content — mark as such for wake signal handling
+            glassesManager.sendRawMessage(msg.toJson(), isStreamContent = true)
         }
         openClawClient.onChatStreamEnd = { msg ->
+            // Streaming complete — notify wake manager
+            glassesManager.notifyStreamEnd(msg.id)
             glassesManager.sendRawMessage(msg.toJson())
         }
         openClawClient.onSessionList = { msg ->
@@ -782,6 +794,11 @@ fun MainScreen() {
             hasCachedSn = hasCachedSn,
             cachedSn = cachedSn,
             cachedDeviceName = cachedDeviceName,
+            // Wake on stream
+            wakeOnStreamEnabled = wakeOnStreamEnabled,
+            onWakeOnStreamChange = { enabled ->
+                glassesManager.wakeSignalManager.setEnabled(enabled)
+            },
             // Software Update
             installState = installState,
             sdkConnected = sdkConnected,

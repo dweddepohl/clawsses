@@ -101,6 +101,14 @@ class GlassesConnectionManager(private val context: Context) {
     var onAiKeyDown: (() -> Unit)? = null
     var onAiExit: (() -> Unit)? = null
 
+    // Wake signal manager for handling standby wake-up and message buffering
+    val wakeSignalManager = WakeSignalManager(
+        sendToGlasses = { message -> sendRawMessageDirect(message) }
+    )
+
+    // Track when streaming is active (to know when to send wake signals)
+    private var _activeStreamMessageId: String? = null
+
     init {
         // Set up SDK callbacks first so any state transitions are captured
         setupSdkCallbacks()
@@ -125,12 +133,16 @@ class GlassesConnectionManager(private val context: Context) {
             currentReconnectDelayMs = RECONNECT_BASE_DELAY_MS
             reconnectJob?.cancel()
             RokidSdkManager.setScreenOffTimeout(30)
+            // Notify wake signal manager that glasses is connected
+            wakeSignalManager.handleGlassesConnected()
             Log.d(TAG, "SDK: Glasses connected")
         }
 
         RokidSdkManager.onGlassesDisconnected = {
             _connectionState.value = ConnectionState.Disconnected
             _wifiP2PConnected.value = false
+            // Notify wake signal manager of disconnection
+            wakeSignalManager.handleGlassesDisconnected()
             Log.d(TAG, "SDK: Glasses disconnected")
 
             // Auto-reconnect: when the glasses app restarts, the system-level BT
@@ -178,6 +190,20 @@ class GlassesConnectionManager(private val context: Context) {
         }
 
         RokidSdkManager.onMessageFromGlasses = { cmd, caps ->
+            // Notify wake signal manager of activity (glasses is responsive)
+            wakeSignalManager.handleGlassesActivity()
+
+            // Check for wake_ack message
+            try {
+                val json = JSONObject(cmd)
+                if (json.optString("type") == "wake_ack") {
+                    val ready = json.optBoolean("ready", true)
+                    wakeSignalManager.handleWakeAck(ready)
+                    Log.d(TAG, "Received wake_ack from glasses: ready=$ready")
+                    return@onMessageFromGlasses
+                }
+            } catch (_: Exception) { }
+
             // Forward messages from SDK to our callback
             onMessageFromGlasses?.invoke(cmd)
         }
@@ -530,23 +556,66 @@ class GlassesConnectionManager(private val context: Context) {
     }
 
     /**
-     * Send a JSON message to glasses (chat messages, streaming chunks, status updates, etc.)
+     * Send a JSON message to glasses with wake signal coordination.
+     * Uses WakeSignalManager to buffer messages if glasses may be in standby.
+     *
+     * @param jsonMessage The JSON message to send
+     * @param isStreamContent True if this is part of an ongoing stream (for wake signal)
+     * @param isNewMessage True if this is a new spontaneous message (e.g., cron)
      */
-    fun sendRawMessage(jsonMessage: String) {
+    fun sendRawMessage(
+        jsonMessage: String,
+        isStreamContent: Boolean = false,
+        isNewMessage: Boolean = false
+    ) {
+        val msgType = try {
+            org.json.JSONObject(jsonMessage).optString("type", "?")
+        } catch (_: Exception) { "?" }
+
+        Log.d(TAG, "sendRawMessage: type=$msgType, size=${jsonMessage.length}, stream=$isStreamContent")
+
+        // Use wake signal manager for message delivery with buffering
+        wakeSignalManager.sendMessage(jsonMessage, isStreamContent, isNewMessage)
+    }
+
+    /**
+     * Send a message directly to glasses without wake signal handling.
+     * Used internally by WakeSignalManager and for system messages.
+     */
+    internal fun sendRawMessageDirect(jsonMessage: String) {
         val msgType = try {
             org.json.JSONObject(jsonMessage).optString("type", "?")
         } catch (_: Exception) { "?" }
         val isDebug = _debugModeEnabled.value
-        Log.d(TAG, "sendRawMessage: type=$msgType, size=${jsonMessage.length}, debug=$isDebug")
+        Log.d(TAG, "sendRawMessageDirect: type=$msgType, size=${jsonMessage.length}, debug=$isDebug")
 
         if (isDebug) {
             val sent = debugServer?.sendToGlasses(jsonMessage) ?: false
             if (!sent) {
-                Log.w(TAG, "sendRawMessage: debugServer.sendToGlasses returned false (no client?)")
+                Log.w(TAG, "sendRawMessageDirect: debugServer.sendToGlasses returned false (no client?)")
             }
         } else {
             RokidSdkManager.sendToGlasses(jsonMessage)
         }
+    }
+
+    /**
+     * Notify that streaming has started for a message.
+     * This prepares the wake manager for continuous streaming.
+     */
+    fun notifyStreamStart(messageId: String) {
+        _activeStreamMessageId = messageId
+        wakeSignalManager.notifyStreamStart(messageId)
+    }
+
+    /**
+     * Notify that streaming has ended for a message.
+     */
+    fun notifyStreamEnd(messageId: String) {
+        if (_activeStreamMessageId == messageId) {
+            _activeStreamMessageId = null
+        }
+        wakeSignalManager.notifyStreamEnd(messageId)
     }
 
     /**

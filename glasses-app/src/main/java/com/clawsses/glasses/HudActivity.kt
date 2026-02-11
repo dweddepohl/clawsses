@@ -49,6 +49,8 @@ import org.json.JSONObject
 
 import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
+import android.view.WindowManager
 import com.clawsses.glasses.BuildConfig
 
 class HudActivity : ComponentActivity() {
@@ -91,6 +93,10 @@ class HudActivity : ComponentActivity() {
     // Debug keyboard input mode
     private var isCapturingKeyboardInput = false
     private var keyboardInputBuffer = StringBuilder()
+
+    // Wake signal handling
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var clearWakeNotificationJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -1013,6 +1019,76 @@ class HudActivity : ComponentActivity() {
         }
     }
 
+    // ============== Wake Signal Handling ==============
+
+    /**
+     * Wake the display from standby mode.
+     * Uses PowerManager ACQUIRE_CAUSES_WAKEUP flag to turn the screen on.
+     */
+    private fun wakeDisplay() {
+        try {
+            val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
+            if (powerManager == null) {
+                Log.w(GlassesApp.TAG, "PowerManager not available")
+                return
+            }
+
+            // Check if screen is already on
+            if (powerManager.isInteractive) {
+                Log.d(GlassesApp.TAG, "Display already awake")
+                return
+            }
+
+            // Acquire a wake lock to turn the screen on
+            // The ACQUIRE_CAUSES_WAKEUP flag ensures the screen turns on
+            @Suppress("DEPRECATION")
+            wakeLock?.release()
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "clawsses:wake_signal"
+            ).apply {
+                acquire(5000L) // Hold for 5 seconds max, then auto-release
+            }
+
+            // Also use window flags for additional wake mechanism
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+            )
+
+            Log.i(GlassesApp.TAG, "Display wake triggered")
+        } catch (e: Exception) {
+            Log.e(GlassesApp.TAG, "Failed to wake display", e)
+        }
+    }
+
+    /**
+     * Show a brief wake notification in the HUD to alert the user
+     * that content is arriving. Auto-dismisses after 2 seconds.
+     */
+    private fun showWakeNotification(reason: String) {
+        clearWakeNotificationJob?.cancel()
+
+        hudState.update { current ->
+            current.copy(
+                showWakeNotification = true,
+                wakeReason = reason
+            )
+        }
+
+        // Auto-dismiss after 2 seconds
+        clearWakeNotificationJob = lifecycleScope.launch {
+            delay(2000)
+            hudState.update { current ->
+                current.copy(
+                    showWakeNotification = false,
+                    wakeReason = null
+                )
+            }
+        }
+    }
+
     // ============== Phone Communication ==============
 
     private fun requestSessionList() {
@@ -1397,6 +1473,23 @@ class HudActivity : ComponentActivity() {
                     Log.d(GlassesApp.TAG, "Photo removed from phone request")
                 }
 
+                "wake_signal" -> {
+                    // Phone is sending a wake signal — glasses may be in standby
+                    val reason = msg.optString("reason", "")
+                    val bufferedCount = msg.optInt("bufferedCount", 0)
+                    Log.i(GlassesApp.TAG, "Wake signal received: reason=$reason, buffered=$bufferedCount")
+
+                    // Wake the display if in standby
+                    wakeDisplay()
+
+                    // Show wake notification briefly
+                    showWakeNotification(reason)
+
+                    // Send acknowledgment back to phone
+                    phoneConnection.sendToPhone("""{"type":"wake_ack","ready":true,"timestamp":${System.currentTimeMillis()}}""")
+                    Log.d(GlassesApp.TAG, "Sent wake_ack to phone")
+                }
+
                 else -> {
                     Log.d(GlassesApp.TAG, "Unknown message type: $type")
                 }
@@ -1469,6 +1562,10 @@ class HudActivity : ComponentActivity() {
         cameraCapture.cleanup()
         voiceHandler.cleanup()
         phoneConnection.stop()
+        // Release wake lock if held
+        clearWakeNotificationJob?.cancel()
+        wakeLock?.release()
+        wakeLock = null
         // Kill the process so the next launch starts completely fresh.
         // The CXR native layer may hold global state from the previous
         // CXRServiceBridge that prevents a second bridge in the same process

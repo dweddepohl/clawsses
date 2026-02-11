@@ -50,6 +50,9 @@ fun SettingsScreen(
     hasCachedSn: Boolean,
     cachedSn: String?,
     cachedDeviceName: String?,
+    // Wake on stream
+    wakeOnStreamEnabled: Boolean = true,
+    onWakeOnStreamChange: (Boolean) -> Unit = {},
     // Software Update
     installState: ApkInstaller.InstallState,
     sdkConnected: Boolean,
@@ -112,6 +115,8 @@ fun SettingsScreen(
                     hasCachedSn = hasCachedSn,
                     cachedSn = cachedSn,
                     cachedDeviceName = cachedDeviceName,
+                    wakeOnStreamEnabled = wakeOnStreamEnabled,
+                    onWakeOnStreamChange = onWakeOnStreamChange,
                 )
             }
 

@@ -278,6 +278,62 @@ data class RequestMoreHistory(
 }
 
 // ============================================
+// Wake Signal Protocol (Phone <-> Glasses)
+// ============================================
+
+/**
+ * Wake signal sent from phone to glasses to wake the display.
+ * Phone sends this before sending content when glasses may be in standby.
+ *
+ * The wake mechanism works as follows:
+ * 1. Phone detects new streaming content or spontaneous messages
+ * 2. Phone sends wake_signal with reason and buffered message count
+ * 3. Glasses receives via CXR bridge (which stays active even in standby)
+ * 4. Glasses wakes display and sends wake_ack confirming readiness
+ * 5. Phone delivers buffered messages after receiving ack
+ *
+ * @param reason The reason for the wake signal (stream_content, new_message, cron_message)
+ * @param bufferedCount Number of messages buffered and waiting to be delivered
+ * @param messageId Optional ID of the message that triggered the wake (for correlation)
+ */
+data class WakeSignal(
+    @SerializedName("type") val type: String = "wake_signal",
+    @SerializedName("reason") val reason: String,
+    @SerializedName("bufferedCount") val bufferedCount: Int = 0,
+    @SerializedName("messageId") val messageId: String? = null,
+    @SerializedName("timestamp") val timestamp: Long = System.currentTimeMillis()
+) {
+    fun toJson(): String = gson.toJson(this)
+
+    companion object {
+        const val REASON_STREAM_CONTENT = "stream_content"
+        const val REASON_NEW_MESSAGE = "new_message"
+        const val REASON_CRON_MESSAGE = "cron_message"
+
+        fun fromJson(json: String): WakeSignal = gson.fromJson(json, WakeSignal::class.java)
+    }
+}
+
+/**
+ * Acknowledgment from glasses that it has woken and is ready to receive messages.
+ * Phone should deliver buffered messages after receiving this.
+ *
+ * @param ready True if glasses is awake and ready, false if wake failed
+ * @param timestamp When the glasses acknowledged the wake signal
+ */
+data class WakeAck(
+    @SerializedName("type") val type: String = "wake_ack",
+    @SerializedName("ready") val ready: Boolean = true,
+    @SerializedName("timestamp") val timestamp: Long = System.currentTimeMillis()
+) {
+    fun toJson(): String = gson.toJson(this)
+
+    companion object {
+        fun fromJson(json: String): WakeAck = gson.fromJson(json, WakeAck::class.java)
+    }
+}
+
+// ============================================
 // Utility
 // ============================================
 

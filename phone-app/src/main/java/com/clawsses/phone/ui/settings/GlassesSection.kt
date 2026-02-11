@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,6 +58,8 @@ fun GlassesSection(
     hasCachedSn: Boolean,
     cachedSn: String?,
     cachedDeviceName: String?,
+    wakeOnStreamEnabled: Boolean = true,
+    onWakeOnStreamChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -94,6 +97,8 @@ fun GlassesSection(
                         hasCachedSn = hasCachedSn,
                         cachedSn = cachedSn,
                         cachedDeviceName = cachedDeviceName,
+                        wakeOnStreamEnabled = wakeOnStreamEnabled,
+                        onWakeOnStreamChange = onWakeOnStreamChange,
                         onDisconnect = onDisconnectGlasses,
                         onInitWifiP2P = onInitWifiP2P,
                         onClearSn = onClearSn,
@@ -258,6 +263,8 @@ private fun ConnectedContent(
     hasCachedSn: Boolean,
     cachedSn: String?,
     cachedDeviceName: String?,
+    wakeOnStreamEnabled: Boolean,
+    onWakeOnStreamChange: (Boolean) -> Unit,
     onDisconnect: () -> Unit,
     onInitWifiP2P: () -> Unit,
     onClearSn: () -> Unit,
@@ -304,6 +311,39 @@ private fun ConnectedContent(
                     Text("Setup", style = MaterialTheme.typography.bodySmall)
                 }
             }
+        }
+    }
+
+    // Wake on stream toggle
+    Spacer(Modifier.height(16.dp))
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Wake on Stream",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    "Wake glasses when new content arrives during standby",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Switch(
+                checked = wakeOnStreamEnabled,
+                onCheckedChange = onWakeOnStreamChange,
+            )
         }
     }
 

@@ -221,7 +221,10 @@ data class ChatHudState(
     // History loading state
     val isLoadingMoreHistory: Boolean = false,
     val hasMoreHistory: Boolean = true,  // Assume there's more until we're told otherwise
-    val newPrependCount: Int = 0  // Number of newly prepended messages (for fade-in animation)
+    val newPrependCount: Int = 0,  // Number of newly prepended messages (for fade-in animation)
+    // Wake notification (shown briefly when glasses wakes from standby due to new content)
+    val showWakeNotification: Boolean = false,
+    val wakeReason: String? = null  // "stream_content", "new_message", "cron_message"
 ) {
     /** Total number of messages */
     val totalMessages: Int get() = messages.size
@@ -405,6 +408,8 @@ fun HudScreen(
                     voiceState = state.voiceState,
                     sessionTitle = state.currentSessionName,
                     isLoadingMoreHistory = state.isLoadingMoreHistory,
+                    showWakeNotification = state.showWakeNotification,
+                    wakeReason = state.wakeReason,
                     fontFamily = monoFontFamily,
                     fontSize = fontSize
                 )
@@ -535,6 +540,8 @@ private fun TopBar(
     voiceState: VoiceInputState,
     sessionTitle: String?,
     isLoadingMoreHistory: Boolean = false,
+    showWakeNotification: Boolean = false,
+    wakeReason: String? = null,
     fontFamily: FontFamily,
     fontSize: androidx.compose.ui.unit.TextUnit
 ) {
@@ -584,8 +591,16 @@ private fun TopBar(
                 color = if (isConnected) HudColors.green else HudColors.error,
                 fontSize = (statusFontSize.value + 2).sp
             )
-            // Show voice state when active, otherwise show agent state
+            // Show voice state when active, wake notification, otherwise show agent state
             val stateLabel = when {
+                showWakeNotification -> {
+                    when (wakeReason) {
+                        "stream_content" -> "\u26A1 streaming..."
+                        "new_message" -> "\u26A1 new message"
+                        "cron_message" -> "\u26A1 notification"
+                        else -> "\u26A1 waking..."
+                    }
+                }
                 voiceState is VoiceInputState.Listening -> {
                     val modeSuffix = if (voiceMode == RecognitionMode.OPENAI) " [AI]" else ""
                     "listening$modeSuffix..."
@@ -608,6 +623,7 @@ private fun TopBar(
             Text(
                 text = stateLabel,
                 color = when {
+                    showWakeNotification -> HudColors.yellow  // Yellow for wake notification (attention-grabbing)
                     isVoiceActive && voiceMode == RecognitionMode.OPENAI -> Color(0xFF64B5F6)  // Light blue for OpenAI
                     isVoiceActive -> HudColors.yellow  // Yellow for device/fallback voice
                     isLoadingMoreHistory -> HudColors.cyan

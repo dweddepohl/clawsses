@@ -218,6 +218,8 @@ data class ChatHudState(
     // Battery level (0-100), null = unavailable / hide indicator
     val batteryLevel: Int? = null,
     val batteryCharging: Boolean = false,
+    // Current time (HH:MM, 24-hour format)
+    val currentTime: String = "",
     // History loading state
     val isLoadingMoreHistory: Boolean = false,
     val hasMoreHistory: Boolean = true,  // Assume there's more until we're told otherwise
@@ -457,6 +459,7 @@ fun HudScreen(
                     hudPosition = state.hudPosition,
                     batteryLevel = state.batteryLevel,
                     batteryCharging = state.batteryCharging,
+                    currentTime = state.currentTime,
                     fontFamily = monoFontFamily,
                     alpha = menuAlpha
                 )
@@ -1179,6 +1182,7 @@ private fun ChatMenuBar(
     hudPosition: HudPosition,
     batteryLevel: Int?,
     batteryCharging: Boolean,
+    currentTime: String,
     fontFamily: FontFamily,
     alpha: Float,
     modifier: Modifier = Modifier
@@ -1247,6 +1251,17 @@ private fun ChatMenuBar(
                     }
                 }
             }
+        }
+
+        // Current time (HH:MM, 24-hour format)
+        if (currentTime.isNotEmpty()) {
+            Text(
+                text = currentTime,
+                color = HudColors.dimText,
+                fontSize = commandFontSize,
+                fontFamily = fontFamily,
+                modifier = Modifier.padding(start = 4.dp)
+            )
         }
 
         // Battery indicator (bottom-right, only shown when available)

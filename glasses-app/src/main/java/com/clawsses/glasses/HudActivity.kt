@@ -50,6 +50,9 @@ import org.json.JSONObject
 import android.os.BatteryManager
 import android.os.Build
 import com.clawsses.glasses.BuildConfig
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class HudActivity : ComponentActivity() {
 
@@ -245,6 +248,22 @@ class HudActivity : ComponentActivity() {
                     hudState.value = current.copy(batteryLevel = level, batteryCharging = charging)
                 }
                 delay(5_000)
+            }
+        }
+
+        // Update current time every minute (HH:MM, 24-hour format)
+        lifecycleScope.launch {
+            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+            while (true) {
+                val time = timeFormat.format(Date())
+                val current = hudState.value
+                if (current.currentTime != time) {
+                    hudState.value = current.copy(currentTime = time)
+                }
+                // Calculate delay until next minute boundary for precise updates
+                val now = System.currentTimeMillis()
+                val delayMs = 60_000 - (now % 60_000)
+                delay(delayMs)
             }
         }
     }

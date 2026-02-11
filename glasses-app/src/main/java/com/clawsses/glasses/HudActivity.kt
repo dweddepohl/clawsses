@@ -40,6 +40,7 @@ import com.clawsses.glasses.ui.VoiceInputState
 import com.clawsses.glasses.ui.RecognitionMode
 import com.clawsses.glasses.ui.theme.GlassesHudTheme
 import com.clawsses.glasses.voice.GlassesVoiceHandler
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -83,6 +84,9 @@ class HudActivity : ComponentActivity() {
     private lateinit var cameraCapture: CameraCapture
 
     // Thumbnails to attach to the next user message echo from the server
+
+    // Coroutine to clear newPrependCount after fade-in animations complete
+    private var clearPrependJob: Job? = null
 
     // Debug keyboard input mode
     private var isCapturingKeyboardInput = false
@@ -871,6 +875,25 @@ class HudActivity : ComponentActivity() {
         val current = hudState.value
         val newPosition = maxOf(0, current.scrollPosition - 5) // scroll by 5 messages
         hudState.value = current.copy(scrollPosition = newPosition)
+
+        // If we've scrolled to the top and there might be more history, request it
+        if (newPosition == 0 && current.hasMoreHistory && !current.isLoadingMoreHistory && current.messages.isNotEmpty()) {
+            requestMoreHistory()
+        }
+    }
+
+    private fun requestMoreHistory() {
+        val current = hudState.value
+        if (current.isLoadingMoreHistory || !current.hasMoreHistory || current.messages.isEmpty()) return
+
+        hudState.value = current.copy(isLoadingMoreHistory = true)
+
+        val json = JSONObject().apply {
+            put("type", "request_more_history")
+            put("currentCount", current.messages.size)
+        }
+        phoneConnection.sendToPhone(json.toString())
+        Log.d(GlassesApp.TAG, "Requesting more history (currentCount=${current.messages.size})")
     }
 
     private fun scrollDown() {
@@ -1080,8 +1103,10 @@ class HudActivity : ComponentActivity() {
                 }
 
                 "chat_history" -> {
-                    // Batched session history — replace all messages and scroll to bottom
+                    // Parse message list
                     val messagesArray = msg.optJSONArray("messages")
+                    val isLoadMore = msg.optBoolean("isLoadMore", false)
+                    val hasMore = msg.optBoolean("hasMore", true)
                     val messages = mutableListOf<DisplayMessage>()
 
                     if (messagesArray != null) {
@@ -1100,14 +1125,50 @@ class HudActivity : ComponentActivity() {
                     }
 
                     val current = hudState.value
-                    hudState.value = current.copy(
-                        messages = messages,
-                        agentState = AgentState.IDLE,
-                        scrollPosition = maxOf(0, messages.size - 1),
-                        scrollTrigger = current.scrollTrigger + 1
-                    )
 
-                    Log.d(GlassesApp.TAG, "Loaded ${messages.size} history messages")
+                    if (isLoadMore && current.isLoadingMoreHistory) {
+                        // Load-more response: older messages were prepended by phone.
+                        // Calculate how many were prepended and shift scroll to stay in place.
+                        val oldCount = current.messages.size
+                        val prependedCount = (messages.size - oldCount).coerceAtLeast(0)
+
+                        if (prependedCount == 0) {
+                            // No new messages — beginning of conversation reached
+                            hudState.value = current.copy(
+                                messages = messages,
+                                isLoadingMoreHistory = false,
+                                hasMoreHistory = false,
+                                newPrependCount = 0
+                            )
+                            Log.d(GlassesApp.TAG, "No more history available")
+                        } else {
+                            hudState.value = current.copy(
+                                messages = messages,
+                                scrollPosition = current.scrollPosition + prependedCount,
+                                isLoadingMoreHistory = false,
+                                hasMoreHistory = hasMore,
+                                newPrependCount = prependedCount
+                            )
+                            // Clear fade-in state after animations have had time to play
+                            clearPrependJob?.cancel()
+                            clearPrependJob = lifecycleScope.launch {
+                                delay(5000)
+                                hudState.update { it.copy(newPrependCount = 0) }
+                            }
+                            Log.d(GlassesApp.TAG, "Load-more: prepended $prependedCount messages (total=${messages.size}, hasMore=$hasMore)")
+                        }
+                    } else {
+                        // Normal history load (initial or session switch) — scroll to bottom
+                        hudState.value = current.copy(
+                            messages = messages,
+                            agentState = AgentState.IDLE,
+                            scrollPosition = maxOf(0, messages.size - 1),
+                            scrollTrigger = current.scrollTrigger + 1,
+                            isLoadingMoreHistory = false,
+                            hasMoreHistory = true  // Reset — new session may have more
+                        )
+                        Log.d(GlassesApp.TAG, "Loaded ${messages.size} history messages")
+                    }
                 }
 
                 "agent_thinking" -> {

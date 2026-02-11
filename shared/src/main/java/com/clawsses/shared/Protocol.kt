@@ -260,6 +260,23 @@ data class SlashCommand(
     }
 }
 
+/**
+ * Request for more chat history from glasses.
+ * Phone should load more history and send back a history_prepend message.
+ * @param beforeMessageId The ID of the oldest currently-displayed message.
+ *                        Phone uses this to know what messages glasses already have.
+ */
+data class RequestMoreHistory(
+    @SerializedName("type") val type: String = "request_more_history",
+    @SerializedName("beforeMessageId") val beforeMessageId: String? = null
+) {
+    fun toJson(): String = gson.toJson(this)
+
+    companion object {
+        fun fromJson(json: String): RequestMoreHistory = gson.fromJson(json, RequestMoreHistory::class.java)
+    }
+}
+
 // ============================================
 // Utility
 // ============================================

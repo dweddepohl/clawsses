@@ -1,6 +1,7 @@
 package com.clawsses.glasses.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -216,7 +217,11 @@ data class ChatHudState(
     val showExitConfirm: Boolean = false,
     // Battery level (0-100), null = unavailable / hide indicator
     val batteryLevel: Int? = null,
-    val batteryCharging: Boolean = false
+    val batteryCharging: Boolean = false,
+    // History loading state
+    val isLoadingMoreHistory: Boolean = false,
+    val hasMoreHistory: Boolean = true,  // Assume there's more until we're told otherwise
+    val newPrependCount: Int = 0  // Number of newly prepended messages (for fade-in animation)
 ) {
     /** Total number of messages */
     val totalMessages: Int get() = messages.size
@@ -399,6 +404,7 @@ fun HudScreen(
                     focusedArea = state.focusedArea,
                     voiceState = state.voiceState,
                     sessionTitle = state.currentSessionName,
+                    isLoadingMoreHistory = state.isLoadingMoreHistory,
                     fontFamily = monoFontFamily,
                     fontSize = fontSize
                 )
@@ -413,6 +419,8 @@ fun HudScreen(
                     fontSize = fontSize,
                     fontFamily = monoFontFamily,
                     alpha = contentAlpha,
+                    hasMoreHistory = state.hasMoreHistory,
+                    newPrependCount = state.newPrependCount,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -526,6 +534,7 @@ private fun TopBar(
     focusedArea: ChatFocusArea,
     voiceState: VoiceInputState,
     sessionTitle: String?,
+    isLoadingMoreHistory: Boolean = false,
     fontFamily: FontFamily,
     fontSize: androidx.compose.ui.unit.TextUnit
 ) {
@@ -590,6 +599,7 @@ private fun TopBar(
                     "processing$modeSuffix $processingDots"
                 }
                 voiceState is VoiceInputState.Error -> "voice error"
+                isLoadingMoreHistory -> "loading..."
                 agentState == AgentState.IDLE -> if (isConnected) "connected" else "disconnected"
                 agentState == AgentState.THINKING -> "thinking..."
                 agentState == AgentState.STREAMING -> "streaming..."
@@ -597,12 +607,11 @@ private fun TopBar(
             }
             Text(
                 text = stateLabel,
-                color = if (isVoiceActive && voiceMode == RecognitionMode.OPENAI) {
-                    Color(0xFF64B5F6)  // Light blue for OpenAI
-                } else if (isVoiceActive) {
-                    HudColors.yellow  // Yellow for device/fallback voice
-                } else {
-                    HudColors.dimText
+                color = when {
+                    isVoiceActive && voiceMode == RecognitionMode.OPENAI -> Color(0xFF64B5F6)  // Light blue for OpenAI
+                    isVoiceActive -> HudColors.yellow  // Yellow for device/fallback voice
+                    isLoadingMoreHistory -> HudColors.cyan
+                    else -> HudColors.dimText
                 },
                 fontSize = statusFontSize,
                 fontFamily = fontFamily
@@ -665,6 +674,8 @@ private fun ChatContentArea(
     fontSize: androidx.compose.ui.unit.TextUnit,
     fontFamily: FontFamily,
     alpha: Float,
+    hasMoreHistory: Boolean = true,
+    newPrependCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     // Auto-scroll to reveal the thinking indicator when it appears.
@@ -701,14 +712,40 @@ private fun ChatContentArea(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                itemsIndexed(messages) { _, message ->
-                    ChatMessageItem(
-                        message = message,
-                        fontSize = fontSize,
-                        fontFamily = fontFamily
-                    )
+                // "Beginning of conversation" marker (static, no displacement issues)
+                if (!hasMoreHistory && messages.isNotEmpty()) {
+                    item(key = "history_start") {
+                        HistoryStartIndicator(
+                            fontSize = fontSize,
+                            fontFamily = fontFamily
+                        )
+                    }
+                }
+
+                itemsIndexed(messages, key = { _, msg -> msg.id }) { index, message ->
+                    // Fade in newly prepended messages as they scroll into view
+                    if (index < newPrependCount) {
+                        val fadeAlpha = remember { Animatable(0.15f) }
+                        LaunchedEffect(Unit) {
+                            fadeAlpha.animateTo(1f, tween(400))
+                        }
+                        Box(modifier = Modifier.alpha(fadeAlpha.value)) {
+                            ChatMessageItem(
+                                message = message,
+                                fontSize = fontSize,
+                                fontFamily = fontFamily
+                            )
+                        }
+                    } else {
+                        ChatMessageItem(
+                            message = message,
+                            fontSize = fontSize,
+                            fontFamily = fontFamily
+                        )
+                    }
                 }
 
                 // Thinking indicator (shown after last message when agent is thinking)
@@ -827,6 +864,26 @@ private fun ThinkingIndicator(
             fontSize = (fontSize.value + 2).sp,
             fontFamily = fontFamily,
             fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun HistoryStartIndicator(
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fontFamily: FontFamily
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "\u2500\u2500 beginning of conversation \u2500\u2500",
+            color = HudColors.dimText,
+            fontSize = fontSize,
+            fontFamily = fontFamily
         )
     }
 }

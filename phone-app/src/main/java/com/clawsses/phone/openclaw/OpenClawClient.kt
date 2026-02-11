@@ -60,6 +60,8 @@ class OpenClawClient(
     var onChatStreamEnd: ((ChatStreamEnd) -> Unit)? = null
     var onSessionList: ((SessionListUpdate) -> Unit)? = null
     var onConnectionUpdate: ((ConnectionUpdate) -> Unit)? = null
+    /** Fired after loadMoreHistory completes. Args: (prependedCount, hasMore) */
+    var onMoreHistoryLoaded: ((Int, Boolean) -> Unit)? = null
 
     private var webSocket: WebSocket? = null
     private val client = OkHttpClient.Builder()
@@ -86,6 +88,11 @@ class OpenClawClient(
     // Current session tracking (exposed as StateFlow for phone UI)
     private val _currentSessionKey = MutableStateFlow<String?>(null)
     val currentSessionKey: StateFlow<String?> = _currentSessionKey.asStateFlow()
+
+    // History pagination: tracks how many messages were last requested from OpenClaw
+    private var currentHistoryLimit = 50
+    private val _isLoadingMoreHistory = MutableStateFlow(false)
+    val isLoadingMoreHistory: StateFlow<Boolean> = _isLoadingMoreHistory.asStateFlow()
 
     // Sessions with unread messages (received while that session was not active)
     private val _unreadSessions = MutableStateFlow<Set<String>>(emptySet())
@@ -310,6 +317,7 @@ class OpenClawClient(
             Log.d(TAG, "Switching to session: $sessionKey")
             _currentSessionKey.value = sessionKey
             _chatMessages.value = emptyList()
+            currentHistoryLimit = 50
             // Clear unread flag for the session we're switching to
             _unreadSessions.value = _unreadSessions.value - sessionKey
             notifyConnectionUpdate(true, sessionKey)
@@ -393,6 +401,110 @@ class OpenClawClient(
                 // Still notify with empty list so glasses clear stale messages
                 _chatMessages.value = emptyList()
                 onChatHistory?.invoke(emptyList())
+            }
+        }
+    }
+
+    /**
+     * Load more chat history beyond what's currently cached.
+     *
+     * OpenClaw's chat.history doesn't support cursor pagination — it returns
+     * the most recent N messages. So we increase N and re-fetch, then prepend
+     * only the newly-discovered older messages to the existing list (keeping
+     * existing message IDs stable).
+     */
+    fun loadMoreHistory() {
+        if (_isLoadingMoreHistory.value) return
+        _isLoadingMoreHistory.value = true
+
+        scope.launch {
+            val key = _currentSessionKey.value ?: "main"
+            val existingMessages = _chatMessages.value
+            val oldCount = existingMessages.size
+
+            try {
+                // Bump the limit by 50, cap at 500 (OpenClaw hard max is 1000)
+                currentHistoryLimit = (currentHistoryLimit + 50).coerceAtMost(500)
+                val params = JsonObject().apply {
+                    addProperty("sessionKey", key)
+                    addProperty("limit", currentHistoryLimit)
+                }
+                Log.d(TAG, "Requesting more history for session $key (limit=$currentHistoryLimit, existing=$oldCount)")
+                val response = sendRequest(OpenClawMethods.CHAT_HISTORY, params)
+
+                if (response.ok) {
+                    val rawMessages = mutableListOf<ChatMessage>()
+                    val messagesArray = response.payload?.getAsJsonArray("messages")
+                    // Track total raw count (including system messages) for hasMore check
+                    val totalReturnedByGateway = messagesArray?.size() ?: 0
+
+                    if (messagesArray != null && messagesArray.size() > 0) {
+                        for (element in messagesArray) {
+                            try {
+                                val msgObj = element.asJsonObject
+                                val role = msgObj.get("role")?.asString ?: continue
+                                if (role != "user" && role != "assistant") continue
+
+                                val contentElement = msgObj.get("content")
+                                val content: String = when {
+                                    contentElement == null -> continue
+                                    contentElement.isJsonPrimitive -> contentElement.asString
+                                    contentElement.isJsonArray -> {
+                                        val textBuilder = StringBuilder()
+                                        for (block in contentElement.asJsonArray) {
+                                            val blockObj = block.asJsonObject
+                                            if (blockObj.get("type")?.asString == "text") {
+                                                val text = blockObj.get("text")?.asString
+                                                if (text != null) textBuilder.append(text)
+                                            }
+                                        }
+                                        textBuilder.toString()
+                                    }
+                                    else -> continue
+                                }
+                                if (content.isEmpty()) continue
+
+                                val timestamp = msgObj.get("timestamp")?.asLong ?: System.currentTimeMillis()
+                                rawMessages.add(ChatMessage(
+                                    id = "",  // placeholder, assigned below
+                                    role = role,
+                                    content = content,
+                                    timestamp = timestamp
+                                ))
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Skipping unparseable history message", e)
+                            }
+                        }
+                    }
+
+                    // The tail of rawMessages corresponds to our existing messages.
+                    // Reuse their IDs; only assign new IDs for the older prefix.
+                    val newOlderCount = (rawMessages.size - oldCount).coerceAtLeast(0)
+                    val olderMessages = rawMessages.take(newOlderCount).map {
+                        it.copy(id = UUID.randomUUID().toString())
+                    }
+
+                    // Combined: new older messages + existing (with stable IDs)
+                    val combined = olderMessages + existingMessages
+                    _chatMessages.value = combined
+
+                    // Did we get everything the gateway has?
+                    // Use the raw count (including system messages) vs the limit we sent,
+                    // NOT the filtered user/assistant count which is always smaller.
+                    val hasMore = totalReturnedByGateway >= currentHistoryLimit
+
+                    Log.d(TAG, "Prepended $newOlderCount older messages (total=${combined.size}, hasMore=$hasMore)")
+                    _isLoadingMoreHistory.value = false
+                    onMoreHistoryLoaded?.invoke(newOlderCount, hasMore)
+                } else {
+                    Log.e(TAG, "More history request failed: ${response.error}")
+                    _isLoadingMoreHistory.value = false
+                    onMoreHistoryLoaded?.invoke(0, false)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading more history for $key", e)
+                _isLoadingMoreHistory.value = false
+                onMoreHistoryLoaded?.invoke(0, false)
             }
         }
     }

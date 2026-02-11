@@ -73,10 +73,6 @@ fun MainScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Initialize SDK early so cached pairing info is available for UI and auto-reconnect.
-    // RokidSdkManager is a singleton — this is safe to call multiple times.
-    remember { RokidSdkManager.initialize(context) }
-
     // Managers
     val glassesManager = remember { GlassesConnectionManager(context) }
     val deviceIdentity = remember { DeviceIdentity(context) }
@@ -109,11 +105,15 @@ fun MainScreen() {
     var openClawToken by remember {
         mutableStateOf(prefs.getString("openclaw_token", "") ?: "")
     }
+    val phoneLoadingMore by openClawClient.isLoadingMoreHistory.collectAsState()
     var inputText by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var showSessionPicker by remember { mutableStateOf(false) }
     var pendingPhotos by remember { mutableStateOf<List<String>>(emptyList()) }
     val listState = rememberLazyListState()
+
+    // How many messages we send to glasses (starts at 20, grows on demand)
+    var glassesMessageLimit by remember { mutableIntStateOf(20) }
 
     // Initialize voice handler and query available languages
     LaunchedEffect(Unit) {
@@ -141,13 +141,6 @@ fun MainScreen() {
 
         // Try to auto-reconnect to previously paired glasses on startup
         glassesManager.tryAutoReconnectOnStartup()
-
-        // Auto-connect to OpenClaw server if we have saved settings
-        if (openClawToken.isNotEmpty()) {
-            val portNum = openClawPort.toIntOrNull() ?: 18789
-            android.util.Log.i("MainScreen", "Auto-connecting to OpenClaw at $openClawHost:$portNum")
-            openClawClient.connect(openClawHost, portNum, openClawToken)
-        }
     }
 
     // Fetch session list when OpenClaw connects
@@ -193,10 +186,27 @@ fun MainScreen() {
         }
     }
 
-    // Auto-scroll to bottom when new messages arrive
+    // Auto-scroll to bottom when new messages arrive (but not during load-more).
+    // Detect prepend by checking if the first message ID changed — this is more
+    // reliable than checking phoneLoadingMore which may already be false by the
+    // time this effect runs (both StateFlows update in the same coroutine frame).
+    var previousFirstMsgId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(chatMessages.size) {
         if (chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(chatMessages.size - 1)
+            val currentFirstId = chatMessages.first().id
+            val wasPrepend = previousFirstMsgId != null && currentFirstId != previousFirstMsgId
+            if (!wasPrepend) {
+                listState.animateScrollToItem(chatMessages.size - 1)
+            }
+            previousFirstMsgId = currentFirstId
+        }
+    }
+
+    // Phone UI: detect scroll-to-top and load more history
+    val phoneCanScrollBackward by remember { derivedStateOf { listState.canScrollBackward } }
+    LaunchedEffect(phoneCanScrollBackward) {
+        if (!phoneCanScrollBackward && chatMessages.isNotEmpty() && !phoneLoadingMore) {
+            openClawClient.loadMoreHistory()
         }
     }
 
@@ -206,6 +216,8 @@ fun MainScreen() {
             glassesManager.sendRawMessage(msg.toJson())
         }
         openClawClient.onChatHistory = { messages ->
+            // Full history reload (initial load or session switch) — reset glasses limit
+            glassesMessageLimit = 20
             val json = buildChatHistoryJson(messages)
             android.util.Log.i("MainScreen", "Forwarding chat_history to glasses: ${messages.size} messages, ${json.length} chars")
             glassesManager.sendRawMessage(json)
@@ -224,6 +236,17 @@ fun MainScreen() {
         }
         openClawClient.onConnectionUpdate = { msg ->
             glassesManager.sendRawMessage(msg.toJson())
+        }
+        openClawClient.onMoreHistoryLoaded = { prependedCount, hasMore ->
+            if (prependedCount > 0) {
+                // Increase glasses limit to include the new older messages
+                glassesMessageLimit += prependedCount
+            }
+            // Send the updated full list to glasses with the load-more flag
+            val allMessages = openClawClient.chatMessages.value
+            val json = buildChatHistoryJson(allMessages, glassesMessageLimit, isLoadMore = true, hasMore = hasMore)
+            android.util.Log.i("MainScreen", "Forwarding expanded chat_history to glasses: limit=$glassesMessageLimit of ${allMessages.size}, prepended=$prependedCount, hasMore=$hasMore")
+            glassesManager.sendRawMessage(json)
         }
     }
 
@@ -411,6 +434,21 @@ fun MainScreen() {
                             pendingPhotos = emptyList()
                         } else if (index in pendingPhotos.indices) {
                             pendingPhotos = pendingPhotos.toMutableList().apply { removeAt(index) }
+                        }
+                    }
+                    "request_more_history" -> {
+                        // Glasses scrolled to top and wants older messages
+                        val allMessages = openClawClient.chatMessages.value
+                        android.util.Log.d("MainScreen", "Glasses requesting more history (glassesLimit=$glassesMessageLimit, phoneCache=${allMessages.size})")
+
+                        if (glassesMessageLimit < allMessages.size) {
+                            // Phone has more cached messages — serve from cache
+                            glassesMessageLimit = (glassesMessageLimit + 15).coerceAtMost(allMessages.size)
+                            val chatJson = buildChatHistoryJson(allMessages, glassesMessageLimit, isLoadMore = true, hasMore = true)
+                            glassesManager.sendRawMessage(chatJson)
+                        } else {
+                            // Phone cache exhausted — fetch more from OpenClaw
+                            openClawClient.loadMoreHistory()
                         }
                     }
                 }
@@ -1228,15 +1266,26 @@ private fun startVoiceRecognition(
 /**
  * Build a chat_history JSON message for sending to glasses.
  * Truncates long messages and limits total size for CXR/Bluetooth safety.
+ *
+ * @param maxMessages How many most-recent messages to include (default 20)
+ * @param isLoadMore  If true, glasses will adjust scroll position instead of jumping to bottom
+ * @param hasMore     Whether even older messages exist beyond what's being sent
  */
-private fun buildChatHistoryJson(messages: List<ChatMessage>): String {
-    // Take only the most recent messages — CXR channel has limited bandwidth
-    val maxMessages = 20
+private fun buildChatHistoryJson(
+    messages: List<ChatMessage>,
+    maxMessages: Int = 20,
+    isLoadMore: Boolean = false,
+    hasMore: Boolean = true
+): String {
     val maxContentLength = 2000
     val recentMessages = if (messages.size > maxMessages) messages.takeLast(maxMessages) else messages
 
     return org.json.JSONObject().apply {
         put("type", "chat_history")
+        if (isLoadMore) {
+            put("isLoadMore", true)
+            put("hasMore", hasMore)
+        }
         val arr = org.json.JSONArray()
         for (msg in recentMessages) {
             arr.put(org.json.JSONObject().apply {

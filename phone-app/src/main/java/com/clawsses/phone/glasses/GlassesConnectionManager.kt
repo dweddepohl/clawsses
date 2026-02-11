@@ -189,7 +189,7 @@ class GlassesConnectionManager(private val context: Context) {
             Log.e(TAG, "SDK: WiFi P2P failed")
         }
 
-        RokidSdkManager.onMessageFromGlasses = { cmd, caps ->
+        RokidSdkManager.onMessageFromGlasses = handleGlassesMsg@{ cmd, caps ->
             // Notify wake signal manager of activity (glasses is responsive)
             wakeSignalManager.handleGlassesActivity()
 
@@ -200,7 +200,7 @@ class GlassesConnectionManager(private val context: Context) {
                     val ready = json.optBoolean("ready", true)
                     wakeSignalManager.handleWakeAck(ready)
                     Log.d(TAG, "Received wake_ack from glasses: ready=$ready")
-                    return@onMessageFromGlasses
+                    return@handleGlassesMsg
                 }
             } catch (_: Exception) { }
 

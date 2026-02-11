@@ -144,6 +144,7 @@ sealed class VoiceInputState {
     object Idle : VoiceInputState()
     data class Listening(val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceInputState()
     data class Recognizing(val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceInputState()
+    data class Processing(val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceInputState()
     data class Error(val message: String) : VoiceInputState()
 }
 
@@ -427,6 +428,7 @@ fun HudScreen(
                         photos = state.photoThumbnails,
                         selectedIndex = state.inputActionIndex,
                         isFocused = inputFocused,
+                        isProcessing = state.voiceState is VoiceInputState.Processing,
                         fontFamily = monoFontFamily,
                         fontSize = fontSize,
                         alpha = inputAlpha
@@ -532,13 +534,29 @@ private fun TopBar(
     // Check if voice is active
     val isVoiceActive = voiceState is VoiceInputState.Listening ||
                         voiceState is VoiceInputState.Recognizing ||
+                        voiceState is VoiceInputState.Processing ||
                         voiceState is VoiceInputState.Error
 
     // Get voice mode for display
     val voiceMode = when (voiceState) {
         is VoiceInputState.Listening -> voiceState.mode
         is VoiceInputState.Recognizing -> voiceState.mode
+        is VoiceInputState.Processing -> voiceState.mode
         else -> null
+    }
+
+    // Animated dots for processing state
+    val processingDots = if (voiceState is VoiceInputState.Processing) {
+        var dotCount by remember { mutableIntStateOf(1) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(400)
+                dotCount = (dotCount % 3) + 1
+            }
+        }
+        ".".repeat(dotCount)
+    } else {
+        ""
     }
 
     Box(
@@ -566,6 +584,10 @@ private fun TopBar(
                 voiceState is VoiceInputState.Recognizing -> {
                     val modeSuffix = if (voiceMode == RecognitionMode.OPENAI) " [AI]" else ""
                     "recognizing$modeSuffix..."
+                }
+                voiceState is VoiceInputState.Processing -> {
+                    val modeSuffix = if (voiceMode == RecognitionMode.OPENAI) " [AI]" else ""
+                    "processing$modeSuffix $processingDots"
                 }
                 voiceState is VoiceInputState.Error -> "voice error"
                 agentState == AgentState.IDLE -> if (isConnected) "connected" else "disconnected"
@@ -865,6 +887,7 @@ private fun InputStagingArea(
     photos: List<Bitmap>,
     selectedIndex: Int,
     isFocused: Boolean,
+    isProcessing: Boolean,
     fontFamily: FontFamily,
     fontSize: androidx.compose.ui.unit.TextUnit,
     alpha: Float,
@@ -874,32 +897,70 @@ private fun InputStagingArea(
     val photoCount = photos.size
     val hasContent = text.isNotEmpty()
 
+    // Blinking cursor for processing state
+    val cursorVisible = if (isProcessing) {
+        val infiniteTransition = rememberInfiniteTransition(label = "processingCursor")
+        val cursorAlpha by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(animation = tween(500)),
+            label = "blink"
+        )
+        cursorAlpha > 0.5f
+    } else {
+        false
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .alpha(alpha)
             .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        // Staged text display (only when voice text is present)
-        if (showText) {
+        // Staged text display (show when text is present OR when processing)
+        if (showText || isProcessing) {
+            val borderColor = if (isProcessing) {
+                HudColors.cyan.copy(alpha = 0.6f)
+            } else if (isFocused) {
+                HudColors.yellow.copy(alpha = 0.6f)
+            } else {
+                HudColors.dimText.copy(alpha = 0.4f)
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        HudColors.green.copy(alpha = 0.08f),
+                        if (isProcessing) HudColors.cyan.copy(alpha = 0.05f)
+                        else HudColors.green.copy(alpha = 0.08f),
                         RoundedCornerShape(4.dp)
                     )
                     .border(
                         width = 1.dp,
-                        color = if (isFocused) HudColors.yellow.copy(alpha = 0.6f) else HudColors.dimText.copy(alpha = 0.4f),
+                        color = borderColor,
                         shape = RoundedCornerShape(4.dp)
                     )
                     .padding(horizontal = 6.dp, vertical = 4.dp)
                     .heightIn(min = 20.dp, max = 60.dp)
             ) {
+                val displayText = if (isProcessing) {
+                    val cursor = if (cursorVisible) "\u2588" else " "
+                    if (text.isNotEmpty()) "$text $cursor" else cursor
+                } else {
+                    text.ifEmpty { "..." }
+                }
+
+                val textColor = if (isProcessing && text.isEmpty()) {
+                    HudColors.cyan
+                } else if (text.isEmpty()) {
+                    HudColors.dimText
+                } else {
+                    HudColors.primaryText
+                }
+
                 Text(
-                    text = text.ifEmpty { "..." },
-                    color = if (text.isEmpty()) HudColors.dimText else HudColors.primaryText,
+                    text = displayText,
+                    color = textColor,
                     fontSize = fontSize,
                     fontFamily = fontFamily,
                     lineHeight = fontSize,

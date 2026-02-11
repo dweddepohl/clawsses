@@ -40,6 +40,7 @@ class GlassesVoiceHandler {
         object Idle : VoiceState()
         data class Listening(val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceState()
         data class Recognizing(val partialText: String, val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceState()
+        data class Processing(val mode: RecognitionMode = RecognitionMode.DEVICE) : VoiceState()
         data class Error(val message: String) : VoiceState()
     }
 
@@ -121,6 +122,10 @@ class GlassesVoiceHandler {
                 _voiceState.value = VoiceState.Recognizing(partialText, currentMode)
                 Log.d(TAG, "Phone: recognizing '$partialText' (mode=$currentMode)")
             }
+            "processing" -> {
+                _voiceState.value = VoiceState.Processing(currentMode)
+                Log.d(TAG, "Phone: processing (mode=$currentMode)")
+            }
             "error" -> {
                 _voiceState.value = VoiceState.Error(partialText)
                 onResult?.invoke(VoiceResult.Error(partialText))
@@ -162,7 +167,8 @@ class GlassesVoiceHandler {
     fun isListening(): Boolean {
         val state = _voiceState.value
         return state is VoiceState.Listening ||
-               state is VoiceState.Recognizing
+               state is VoiceState.Recognizing ||
+               state is VoiceState.Processing
     }
 
     /**

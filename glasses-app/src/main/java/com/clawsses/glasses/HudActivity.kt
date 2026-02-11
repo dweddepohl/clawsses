@@ -139,6 +139,7 @@ class HudActivity : ComponentActivity() {
                     is GlassesVoiceHandler.VoiceState.Idle -> VoiceInputState.Idle
                     is GlassesVoiceHandler.VoiceState.Listening -> VoiceInputState.Listening(mapMode(voiceState.mode))
                     is GlassesVoiceHandler.VoiceState.Recognizing -> VoiceInputState.Recognizing(mapMode(voiceState.mode))
+                    is GlassesVoiceHandler.VoiceState.Processing -> VoiceInputState.Processing(mapMode(voiceState.mode))
                     is GlassesVoiceHandler.VoiceState.Error -> VoiceInputState.Error(voiceState.message)
                 }
                 val newVoiceText = when (voiceState) {
@@ -146,6 +147,10 @@ class HudActivity : ComponentActivity() {
                     else -> ""
                 }
                 // Use atomic update to avoid overwriting concurrent state changes
+                // Don't force staging area open — the SDK AI scene shows recognized text.
+                // Staging area opens when voice_result arrives (stageVoiceText).
+                // If staging is already open (from previous input), the cursor animation
+                // still shows via the Processing voice state in HudScreen.
                 hudState.update { current ->
                     current.copy(
                         voiceState = newVoiceState,

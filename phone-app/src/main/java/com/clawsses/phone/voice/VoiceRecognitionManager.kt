@@ -60,6 +60,7 @@ class VoiceRecognitionManager(private val context: Context) {
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
     var onPartialResult: ((String) -> Unit)? = null
+    var onSpeechStopped: (() -> Unit)? = null
 
     init {
         fallbackHandler.initialize()
@@ -149,6 +150,9 @@ class VoiceRecognitionManager(private val context: Context) {
             languageTag = languageTag,
             onPartial = { partialText ->
                 onPartialResult?.invoke(partialText)
+            },
+            onSpeechStopped = {
+                onSpeechStopped?.invoke()
             },
             onFinal = { finalText ->
                 Log.i(TAG, "OpenAI final result: ${finalText.take(100)}")

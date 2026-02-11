@@ -220,9 +220,8 @@ fun MainScreen() {
     val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
     LaunchedEffect(Unit) {
         glassesManager.onAiKeyDown = {
-            android.util.Log.i("MainScreen", ">>> AI key down from glasses - will start voice recognition")
-            mainHandler.postDelayed({
-                android.util.Log.i("MainScreen", ">>> Starting voice recognition on main thread")
+            android.util.Log.i("MainScreen", ">>> AI key down from glasses - starting voice recognition")
+            mainHandler.post {
                 RokidSdkManager.setCommunicationDevice()
                 startVoiceRecognitionWithManager(
                     voiceRecognitionManager = voiceRecognitionManager,
@@ -235,7 +234,7 @@ fun MainScreen() {
                     pendingPhotos = { pendingPhotos },
                     onPhotosConsumed = { pendingPhotos = emptyList() }
                 )
-            }, 300)
+            }
         }
         glassesManager.onAiExit = {
             android.util.Log.d("MainScreen", "AI scene exited on glasses (recognizer continues)")
@@ -261,8 +260,19 @@ fun MainScreen() {
                     "start_voice" -> {
                         android.util.Log.d("MainScreen", "Glasses requested voice recognition start")
                         com.clawsses.phone.glasses.RokidSdkManager.setCommunicationDevice()
+                        // Keep SDK AI scene alive (it times out without ASR content)
+                        com.clawsses.phone.glasses.RokidSdkManager.sendAsrContent("...")
                         // Send voice state with mode info
                         val modeIndicator = if (voiceRecognitionManager.isOpenAIAvailable()) "openai" else "device"
+                        // Send "processing" state when VAD detects speech end
+                        voiceRecognitionManager.onSpeechStopped = {
+                            val processingMsg = org.json.JSONObject().apply {
+                                put("type", "voice_state")
+                                put("state", "processing")
+                                put("mode", modeIndicator)
+                            }
+                            glassesManager.sendRawMessage(processingMsg.toString())
+                        }
                         voiceRecognitionManager.startListening(languageTag = voiceLanguageManager.getActiveLanguageTag()) { result ->
                             com.clawsses.phone.glasses.RokidSdkManager.clearCommunicationDevice()
                             when (result) {
@@ -1037,6 +1047,22 @@ private fun startVoiceRecognitionWithManager(
     }
     glassesManager.sendRawMessage(stateMsg.toString())
 
+    // Keep the SDK AI scene alive — it times out if no ASR content is sent.
+    // With OpenAI Realtime, there are no partials during active speech (only after VAD pause),
+    // so the AI scene would close before any transcription arrives. Sending initial content
+    // resets the timeout. Real partial results replace this via onPartialResult.
+    RokidSdkManager.sendAsrContent("...")
+
+    // Send "processing" state to glasses when VAD detects speech end
+    voiceRecognitionManager.onSpeechStopped = {
+        val processingMsg = org.json.JSONObject().apply {
+            put("type", "voice_state")
+            put("state", "processing")
+            put("mode", modeIndicator)
+        }
+        glassesManager.sendRawMessage(processingMsg.toString())
+    }
+
     voiceRecognitionManager.startListening(languageTag = languageTag) { result ->
         val actualMode = voiceRecognitionManager.getModeDescription()
         android.util.Log.i("MainScreen", ">>> Voice result received (mode=$actualMode, retry=$isRetry): $result")
@@ -1060,6 +1086,12 @@ private fun startVoiceRecognitionWithManager(
                 } else {
                     android.util.Log.i("MainScreen", "Voice: no speech detected, dismissing")
                     RokidSdkManager.notifyAsrNone()
+                    // Send voice_state idle to glasses so the voice overlay closes
+                    val idleMsg = org.json.JSONObject().apply {
+                        put("type", "voice_state")
+                        put("state", "idle")
+                    }
+                    glassesManager.sendRawMessage(idleMsg.toString())
                     mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 500)
                 }
             }
@@ -1136,6 +1168,11 @@ private fun startVoiceRecognition(
                 } else {
                     android.util.Log.i("MainScreen", "AI voice: no speech detected, dismissing")
                     RokidSdkManager.notifyAsrNone()
+                    val idleMsg = org.json.JSONObject().apply {
+                        put("type", "voice_state")
+                        put("state", "idle")
+                    }
+                    glassesManager.sendRawMessage(idleMsg.toString())
                     mainHandler.postDelayed({ RokidSdkManager.sendExitEvent() }, 500)
                 }
             }

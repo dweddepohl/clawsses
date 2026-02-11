@@ -40,8 +40,9 @@ class WakeSignalManager(
         // Slightly less than the 30s screen-off timeout to be conservative.
         private const val STANDBY_DETECTION_MS = 25_000L
 
-        // Minimum interval between hardware wake keep-alive calls during streaming
-        private const val WAKE_KEEPALIVE_INTERVAL_MS = 20_000L
+        // Minimum interval between hardware wake keep-alive calls during streaming.
+        // Each call resets the glasses' 30s screen-off timeout via CXR SDK.
+        private const val WAKE_KEEPALIVE_INTERVAL_MS = 5_000L
     }
 
     /**
@@ -140,12 +141,17 @@ class WakeSignalManager(
                 // Glasses is awake, send directly
                 sendToGlasses(json)
 
-                // Keep-alive: periodically reset hardware display during streaming
-                // to prevent the 30s screen-off timeout from firing mid-stream
-                if (isStreamContent && (now - lastHardwareWakeTime > WAKE_KEEPALIVE_INTERVAL_MS)) {
-                    Log.d(TAG, "Stream keep-alive: resetting display timeout")
-                    wakeHardwareDisplay()
-                    lastHardwareWakeTime = now
+                if (isStreamContent) {
+                    // Reset standby detection — streaming counts as activity
+                    resetStandbyTimer()
+
+                    // Keep-alive: periodically reset glasses screen-off timeout
+                    // via CXR SDK to prevent the 30s hardware timer from firing
+                    if (now - lastHardwareWakeTime > WAKE_KEEPALIVE_INTERVAL_MS) {
+                        Log.d(TAG, "Stream keep-alive: resetting display timeout")
+                        wakeHardwareDisplay()
+                        lastHardwareWakeTime = now
+                    }
                 }
 
                 true

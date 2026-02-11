@@ -393,7 +393,7 @@ class GlassesConnectionManager(private val context: Context) {
      */
     fun disconnect() {
         userInitiatedDisconnect = true
-        cancelReconnect()
+        resetReconnectState()
         if (_debugModeEnabled.value) {
             stopDebugServer()
         } else {
@@ -441,7 +441,7 @@ class GlassesConnectionManager(private val context: Context) {
                 .toLong()
                 .coerceAtMost(RECONNECT_MAX_DELAY_MS)
 
-            if (RokidSdkManager.reconnect()) {
+            if (RokidSdkManager.reconnect(attempt)) {
                 Log.i(TAG, "Auto-reconnect initiated (attempt $attempt)")
 
                 // Timeout: if no callback fires within RECONNECT_TIMEOUT_MS, the SDK
@@ -463,11 +463,23 @@ class GlassesConnectionManager(private val context: Context) {
      * Stop any ongoing auto-reconnect attempts.
      * Call this when user manually disconnects or clears pairing.
      */
-    private fun cancelReconnect() {
+    private fun resetReconnectState() {
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectAttempts = 0
         currentReconnectDelayMs = RECONNECT_BASE_DELAY_MS
+    }
+
+    /**
+     * Cancel auto-reconnect and go back to Disconnected state.
+     * Called when the user wants to stop waiting for auto-reconnect.
+     * From Disconnected, the existing Scan button lets them re-pair manually.
+     */
+    fun cancelReconnect() {
+        resetReconnectState()
+        userInitiatedDisconnect = true // prevent auto-reconnect from re-triggering
+        RokidSdkManager.disconnect()
+        _connectionState.value = ConnectionState.Disconnected
     }
 
     // ============== Debug Mode Methods ==============

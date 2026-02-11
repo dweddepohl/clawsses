@@ -740,6 +740,7 @@ fun MainScreen() {
                 cachedSn = null
                 cachedDeviceName = null
             },
+            onCancelReconnect = { glassesManager.cancelReconnect() },
             hasCachedSn = hasCachedSn,
             cachedSn = cachedSn,
             cachedDeviceName = cachedDeviceName,

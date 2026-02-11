@@ -712,15 +712,16 @@ object RokidSdkManager {
     /**
      * Attempt to reconnect to previously connected glasses.
      *
-     * Per the Rokid SDK docs, reconnection uses connectBluetooth(socketUuid, macAddress)
-     * with credentials saved from the initial pairing. initBluetooth is only for first-time
-     * setup from a BLE scan result.
+     * Alternates between two strategies based on the attempt number:
+     * - Odd attempts: initBluetooth with BluetoothDevice from saved MAC (full SDK init path,
+     *   required on cold start when SDK has no internal BT state)
+     * - Even attempts: connectBluetooth with saved socketUuid/macAddress (fast path,
+     *   works when SDK state is still alive from a previous session)
      */
-    fun reconnect(): Boolean {
-        val socketUuid = savedSocketUuid
+    fun reconnect(attempt: Int = 1): Boolean {
         val mac = savedMacAddress
-        if (socketUuid.isNullOrEmpty() || mac.isNullOrEmpty()) {
-            Log.w(TAG, "No saved connection info for reconnection (socketUuid=$socketUuid, mac=$mac)")
+        if (mac.isNullOrEmpty()) {
+            Log.w(TAG, "No saved MAC address for reconnection")
             return false
         }
 
@@ -729,9 +730,41 @@ object RokidSdkManager {
             return false
         }
 
-        Log.i(TAG, "Reconnecting with saved socketUuid=$socketUuid, mac=$mac")
-        connectBluetoothInternal(socketUuid, mac, savedRokidAccount ?: "")
-        return true
+        val context = appContext ?: run {
+            Log.e(TAG, "SDK not initialized — cannot reconnect")
+            return false
+        }
+
+        // Alternate strategies: odd attempts use initBluetooth (full path),
+        // even attempts use connectBluetooth (fast path)
+        val useInitBluetooth = attempt % 2 == 1
+
+        if (useInitBluetooth) {
+            try {
+                val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE)
+                    as? android.bluetooth.BluetoothManager)?.adapter
+                if (adapter != null && adapter.isEnabled) {
+                    val device = adapter.getRemoteDevice(mac)
+                    Log.i(TAG, "Reconnect attempt $attempt: initBluetooth with MAC=$mac")
+                    pendingConnect = true
+                    cxrApi?.initBluetooth(context, device, bluetoothCallback)
+                    return true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "initBluetooth failed for MAC=$mac: ${e.message}")
+            }
+        }
+
+        // Fast path or fallback: connectBluetooth with saved credentials
+        val socketUuid = savedSocketUuid
+        if (!socketUuid.isNullOrEmpty()) {
+            Log.i(TAG, "Reconnect attempt $attempt: connectBluetooth with socketUuid=$socketUuid, mac=$mac")
+            connectBluetoothInternal(socketUuid, mac, savedRokidAccount ?: "")
+            return true
+        }
+
+        Log.w(TAG, "No viable reconnection path")
+        return false
     }
 
     /**

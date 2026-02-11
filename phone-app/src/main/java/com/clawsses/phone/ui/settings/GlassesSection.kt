@@ -53,6 +53,7 @@ fun GlassesSection(
     onDisconnectGlasses: () -> Unit,
     onInitWifiP2P: () -> Unit,
     onClearSn: () -> Unit,
+    onCancelReconnect: () -> Unit,
     hasCachedSn: Boolean,
     cachedSn: String?,
     cachedDeviceName: String?,
@@ -83,6 +84,7 @@ fun GlassesSection(
                     ReconnectingContent(
                         attempt = state.attempt,
                         nextRetryMs = state.nextRetryMs,
+                        onCancel = onCancelReconnect,
                     )
 
                 is GlassesConnectionManager.ConnectionState.Connected ->
@@ -229,13 +231,24 @@ private fun ConnectingContent(message: String = "Connecting...") {
 }
 
 @Composable
-private fun ReconnectingContent(attempt: Int, nextRetryMs: Long) {
+private fun ReconnectingContent(attempt: Int, nextRetryMs: Long, onCancel: () -> Unit) {
     StatusRow(
         color = Color(0xFFFFA500), // Orange
         title = "Reconnecting...",
         subtitle = "Attempt #$attempt (next retry in ${nextRetryMs / 1000}s)",
         showProgress = true,
     )
+
+    Spacer(Modifier.height(16.dp))
+
+    OutlinedButton(
+        onClick = onCancel,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Cancel")
+    }
 }
 
 @Composable

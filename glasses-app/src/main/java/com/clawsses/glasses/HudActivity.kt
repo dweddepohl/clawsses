@@ -49,8 +49,6 @@ import org.json.JSONObject
 
 import android.os.BatteryManager
 import android.os.Build
-import android.os.PowerManager
-import android.view.WindowManager
 import com.clawsses.glasses.BuildConfig
 
 class HudActivity : ComponentActivity() {
@@ -95,7 +93,6 @@ class HudActivity : ComponentActivity() {
     private var keyboardInputBuffer = StringBuilder()
 
     // Wake signal handling
-    private var wakeLock: PowerManager.WakeLock? = null
     private var clearWakeNotificationJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1020,48 +1017,10 @@ class HudActivity : ComponentActivity() {
     }
 
     // ============== Wake Signal Handling ==============
-
-    /**
-     * Wake the display from standby mode.
-     * Uses PowerManager ACQUIRE_CAUSES_WAKEUP flag to turn the screen on.
-     */
-    private fun wakeDisplay() {
-        try {
-            val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
-            if (powerManager == null) {
-                Log.w(GlassesApp.TAG, "PowerManager not available")
-                return
-            }
-
-            // Check if screen is already on
-            if (powerManager.isInteractive) {
-                Log.d(GlassesApp.TAG, "Display already awake")
-                return
-            }
-
-            // Acquire a wake lock to turn the screen on
-            // The ACQUIRE_CAUSES_WAKEUP flag ensures the screen turns on
-            @Suppress("DEPRECATION")
-            wakeLock?.release()
-            wakeLock = powerManager.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "clawsses:wake_signal"
-            ).apply {
-                acquire(5000L) // Hold for 5 seconds max, then auto-release
-            }
-
-            // Also use window flags for additional wake mechanism
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-            )
-
-            Log.i(GlassesApp.TAG, "Display wake triggered")
-        } catch (e: Exception) {
-            Log.e(GlassesApp.TAG, "Failed to wake display", e)
-        }
-    }
+    // The Rokid micro-LED display is woken from the PHONE side via CXR-M SDK
+    // (setGlassBrightness + setScreenOffTimeout). Android PowerManager on the
+    // glasses does NOT control the hardware display. The glasses side only
+    // handles the notification UI and sends wake_ack back to the phone.
 
     /**
      * Show a brief wake notification in the HUD to alert the user
@@ -1474,13 +1433,12 @@ class HudActivity : ComponentActivity() {
                 }
 
                 "wake_signal" -> {
-                    // Phone is sending a wake signal — glasses may be in standby
+                    // Phone is sending a wake signal — display wake is handled by the
+                    // phone via CXR SDK (setGlassBrightness). Glasses side just shows
+                    // the notification and sends ack.
                     val reason = msg.optString("reason", "")
                     val bufferedCount = msg.optInt("bufferedCount", 0)
                     Log.i(GlassesApp.TAG, "Wake signal received: reason=$reason, buffered=$bufferedCount")
-
-                    // Wake the display if in standby
-                    wakeDisplay()
 
                     // Show wake notification briefly
                     showWakeNotification(reason)
@@ -1562,10 +1520,7 @@ class HudActivity : ComponentActivity() {
         cameraCapture.cleanup()
         voiceHandler.cleanup()
         phoneConnection.stop()
-        // Release wake lock if held
         clearWakeNotificationJob?.cancel()
-        wakeLock?.release()
-        wakeLock = null
         // Kill the process so the next launch starts completely fresh.
         // The CXR native layer may hold global state from the previous
         // CXRServiceBridge that prevents a second bridge in the same process

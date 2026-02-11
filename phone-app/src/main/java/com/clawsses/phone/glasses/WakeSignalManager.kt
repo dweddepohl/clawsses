@@ -11,17 +11,18 @@ import java.util.concurrent.ConcurrentLinkedQueue
  * Manages wake signal coordination between phone and glasses.
  *
  * When the glasses may be in standby (display off), this manager:
- * 1. Buffers messages that need to be delivered
- * 2. Sends a wake signal to the glasses
- * 3. Waits for wake acknowledgment before delivering buffered messages
+ * 1. Wakes the hardware display via CXR-M SDK (setGlassBrightness from phone side)
+ * 2. Sends a wake signal message to glasses for notification UI
+ * 3. Buffers messages and waits for acknowledgment before delivering
  * 4. Handles timeout and retry logic for reliable delivery
  *
- * The wake signal is sent via the CXR bridge which remains active even when
- * the glasses display is off. The glasses app receives the signal, wakes the
- * display, and sends an acknowledgment back.
+ * The Rokid micro-LED display is controlled from the phone via CXR SDK — Android
+ * PowerManager on the glasses does NOT work. The phone calls setGlassBrightness()
+ * and setScreenOffTimeout() to physically turn on the display.
  */
 class WakeSignalManager(
-    private val sendToGlasses: (String) -> Unit
+    private val sendToGlasses: (String) -> Unit,
+    private val wakeHardwareDisplay: () -> Boolean = { false }
 ) {
     companion object {
         private const val TAG = "WakeSignalManager"
@@ -34,6 +35,13 @@ class WakeSignalManager(
 
         // Minimum interval between wake signals to avoid spam
         private const val MIN_WAKE_INTERVAL_MS = 1000L
+
+        // Time after last confirmed activity before assuming glasses may be in standby.
+        // Slightly less than the 30s screen-off timeout to be conservative.
+        private const val STANDBY_DETECTION_MS = 25_000L
+
+        // Minimum interval between hardware wake keep-alive calls during streaming
+        private const val WAKE_KEEPALIVE_INTERVAL_MS = 20_000L
     }
 
     /**
@@ -59,15 +67,24 @@ class WakeSignalManager(
     private val _wakeState = MutableStateFlow<WakeState>(WakeState.Unknown)
     val wakeState: StateFlow<WakeState> = _wakeState
 
+    // Track last CONFIRMED activity from glasses (message received, wake_ack, connect).
+    // NOT updated on outgoing messages — only on proof the glasses is responsive.
+    private var lastConfirmedActivityTime = 0L
+
+    // Track last hardware wake call to rate-limit keep-alives
+    private var lastHardwareWakeTime = 0L
+
     // Track last wake signal time to avoid spam
     private var lastWakeSignalTime = 0L
 
     // Track streaming state - if actively streaming, glasses should be awake
     private var isStreaming = false
-    private var lastActivityTime = System.currentTimeMillis()
 
     // Timeout job for wake acknowledgment
     private var wakeTimeoutJob: Job? = null
+
+    // Standby detection timer — fires STANDBY_DETECTION_MS after last confirmed activity
+    private var standbyTimerJob: Job? = null
 
     // Feature toggle
     private var _enabled = MutableStateFlow(true)
@@ -112,7 +129,6 @@ class WakeSignalManager(
         }
 
         val now = System.currentTimeMillis()
-        lastActivityTime = now
 
         // Update streaming state
         if (isStreamContent) {
@@ -123,6 +139,15 @@ class WakeSignalManager(
             is WakeState.Awake -> {
                 // Glasses is awake, send directly
                 sendToGlasses(json)
+
+                // Keep-alive: periodically reset hardware display during streaming
+                // to prevent the 30s screen-off timeout from firing mid-stream
+                if (isStreamContent && (now - lastHardwareWakeTime > WAKE_KEEPALIVE_INTERVAL_MS)) {
+                    Log.d(TAG, "Stream keep-alive: resetting display timeout")
+                    wakeHardwareDisplay()
+                    lastHardwareWakeTime = now
+                }
+
                 true
             }
 
@@ -133,15 +158,15 @@ class WakeSignalManager(
             }
 
             is WakeState.Unknown -> {
-                // Unknown state - need to determine if wake signal is needed
-                // Check if we've had recent activity (glasses likely still awake)
-                val timeSinceLastActivity = now - lastActivityTime
-                if (timeSinceLastActivity < 5000) {
-                    // Recent activity suggests glasses is probably awake
+                // Unknown state - glasses may be in standby
+                val timeSinceLastActivity = now - lastConfirmedActivityTime
+
+                if (lastConfirmedActivityTime > 0 && timeSinceLastActivity < 5000) {
+                    // Very recent confirmed activity — glasses is likely still awake
                     sendToGlasses(json)
                     true
                 } else {
-                    // May be in standby, initiate wake sequence
+                    // May be in standby — wake hardware and initiate wake protocol
                     val reason = when {
                         isStreamContent -> WakeSignal.REASON_STREAM_CONTENT
                         isNewMessage -> WakeSignal.REASON_CRON_MESSAGE
@@ -161,11 +186,17 @@ class WakeSignalManager(
      */
     fun notifyStreamStart(messageId: String) {
         isStreaming = true
-        lastActivityTime = System.currentTimeMillis()
 
         // If in unknown state, proactively send wake signal
         if (_wakeState.value is WakeState.Unknown && _enabled.value) {
             initiateWake(WakeSignal.REASON_STREAM_CONTENT, messageId)
+        } else if (_wakeState.value is WakeState.Awake && _enabled.value) {
+            // Even if awake, wake the hardware as keep-alive for stream start
+            val now = System.currentTimeMillis()
+            if (now - lastHardwareWakeTime > WAKE_KEEPALIVE_INTERVAL_MS) {
+                wakeHardwareDisplay()
+                lastHardwareWakeTime = now
+            }
         }
     }
 
@@ -174,7 +205,6 @@ class WakeSignalManager(
      */
     fun notifyStreamEnd(messageId: String) {
         isStreaming = false
-        lastActivityTime = System.currentTimeMillis()
     }
 
     /**
@@ -185,10 +215,11 @@ class WakeSignalManager(
         Log.i(TAG, "Received wake acknowledgment: ready=$ready")
 
         wakeTimeoutJob?.cancel()
+        lastConfirmedActivityTime = System.currentTimeMillis()
 
         if (ready) {
             _wakeState.value = WakeState.Awake
-            lastActivityTime = System.currentTimeMillis()
+            resetStandbyTimer()
 
             // Deliver all buffered messages
             flushBuffer()
@@ -209,7 +240,7 @@ class WakeSignalManager(
      * This indicates glasses is awake and responsive.
      */
     fun handleGlassesActivity() {
-        lastActivityTime = System.currentTimeMillis()
+        lastConfirmedActivityTime = System.currentTimeMillis()
 
         // If we were in unknown or waking state, mark as awake
         when (_wakeState.value) {
@@ -225,6 +256,9 @@ class WakeSignalManager(
             }
             else -> {}
         }
+
+        // Reset standby detection timer
+        resetStandbyTimer()
     }
 
     /**
@@ -234,6 +268,8 @@ class WakeSignalManager(
     fun handleGlassesDisconnected() {
         _wakeState.value = WakeState.Unknown
         wakeTimeoutJob?.cancel()
+        standbyTimerJob?.cancel()
+        lastConfirmedActivityTime = 0
         // Keep buffered messages - they'll be delivered on reconnect
         Log.d(TAG, "Glasses disconnected, state reset to Unknown")
     }
@@ -244,24 +280,15 @@ class WakeSignalManager(
      */
     fun handleGlassesConnected() {
         _wakeState.value = WakeState.Awake
-        lastActivityTime = System.currentTimeMillis()
+        lastConfirmedActivityTime = System.currentTimeMillis()
+        lastHardwareWakeTime = System.currentTimeMillis()
         wakeTimeoutJob?.cancel()
+        resetStandbyTimer()
 
         // Flush buffered messages
         if (messageBuffer.isNotEmpty()) {
             Log.i(TAG, "Glasses connected, flushing ${messageBuffer.size} buffered messages")
             flushBuffer()
-        }
-    }
-
-    /**
-     * Mark glasses as potentially in standby.
-     * Call this when significant time has passed without activity.
-     */
-    fun markPotentialStandby() {
-        if (_wakeState.value is WakeState.Awake) {
-            _wakeState.value = WakeState.Unknown
-            Log.d(TAG, "Marked glasses as potential standby")
         }
     }
 
@@ -294,7 +321,14 @@ class WakeSignalManager(
         lastWakeSignalTime = now
         _wakeState.value = WakeState.WakingUp(reason, now)
 
-        // Send wake signal
+        // Wake the hardware display from the phone side via CXR-M SDK.
+        // This is the primary wake mechanism — setGlassBrightness() turns on
+        // the micro-LED display, setScreenOffTimeout() resets the idle timer.
+        val hwWakeResult = wakeHardwareDisplay()
+        lastHardwareWakeTime = now
+        Log.i(TAG, "Hardware wake: $hwWakeResult")
+
+        // Send wake signal message to glasses for notification UI
         val wakeSignal = WakeSignal(
             reason = reason,
             bufferedCount = messageBuffer.size,
@@ -308,14 +342,31 @@ class WakeSignalManager(
         wakeTimeoutJob = scope.launch {
             delay(WAKE_ACK_TIMEOUT_MS)
 
-            // If still waiting, assume glasses didn't wake or is offline
+            // If still waiting, assume glasses didn't receive the wake signal
+            // or is offline. Deliver messages anyway — CXR bridge delivers even
+            // when display is off, so content won't be lost.
             if (_wakeState.value is WakeState.WakingUp) {
                 Log.w(TAG, "Wake acknowledgment timeout, delivering messages anyway")
                 _wakeState.value = WakeState.Unknown
 
-                // Deliver buffered messages anyway - glasses might be awake
-                // and just didn't receive the wake signal
+                // Deliver buffered messages
                 flushBuffer()
+            }
+        }
+    }
+
+    /**
+     * Reset the standby detection timer.
+     * After STANDBY_DETECTION_MS without confirmed activity from glasses,
+     * transition from Awake to Unknown to detect potential standby.
+     */
+    private fun resetStandbyTimer() {
+        standbyTimerJob?.cancel()
+        standbyTimerJob = scope.launch {
+            delay(STANDBY_DETECTION_MS)
+            if (_wakeState.value is WakeState.Awake) {
+                Log.d(TAG, "Standby detection: no activity for ${STANDBY_DETECTION_MS}ms, marking Unknown")
+                _wakeState.value = WakeState.Unknown
             }
         }
     }
@@ -344,5 +395,6 @@ class WakeSignalManager(
         scope.cancel()
         messageBuffer.clear()
         wakeTimeoutJob?.cancel()
+        standbyTimerJob?.cancel()
     }
 }

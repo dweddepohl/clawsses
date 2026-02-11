@@ -854,7 +854,7 @@ object RokidSdkManager {
         return cxrApi?.notifyTtsAudioFinished()
     }
 
-    // --- Screen off timeout ---
+    // --- Screen off timeout & wake ---
 
     /**
      * Configure the glasses idle screen-off timeout via CXR-M SDK.
@@ -864,6 +864,34 @@ object RokidSdkManager {
     fun setScreenOffTimeout(seconds: Long): ValueUtil.CxrStatus? {
         Log.d(TAG, "Setting screen off timeout to ${seconds}s")
         return cxrApi?.setScreenOffTimeout(seconds)
+    }
+
+    /**
+     * Wake the glasses display from standby by setting brightness and
+     * resetting the screen-off timeout via CXR-M SDK.
+     *
+     * The Rokid micro-LED display is controlled from the phone side — Android
+     * PowerManager on the glasses does NOT control it. This method uses
+     * setGlassBrightness() to turn the display on and setScreenOffTimeout()
+     * to reset the idle timer so it stays on for another 30 seconds.
+     *
+     * Safe to call repeatedly — setting brightness when already at that
+     * level is effectively a no-op.
+     */
+    fun wakeGlassesScreen(brightness: Int = 15): Boolean {
+        if (!isInitialized || !isBluetoothConnectedState) {
+            Log.d(TAG, "Cannot wake glasses screen: init=$isInitialized, bt=$isBluetoothConnectedState")
+            return false
+        }
+        return try {
+            cxrApi?.setGlassBrightness(brightness)
+            cxrApi?.setScreenOffTimeout(30)
+            Log.i(TAG, "Wake glasses screen: brightness=$brightness, timeout reset to 30s")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to wake glasses screen", e)
+            false
+        }
     }
 
     // --- Camera methods (for AI photo capture via glasses camera) ---

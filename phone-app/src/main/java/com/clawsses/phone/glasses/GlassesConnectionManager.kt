@@ -103,7 +103,12 @@ class GlassesConnectionManager(private val context: Context) {
 
     // Wake signal manager for handling standby wake-up and message buffering
     val wakeSignalManager = WakeSignalManager(
-        sendToGlasses = { message -> sendRawMessageDirect(message) }
+        sendToGlasses = { message -> sendRawMessageDirect(message) },
+        wakeHardwareDisplay = {
+            if (!_debugModeEnabled.value) {
+                RokidSdkManager.wakeGlassesScreen()
+            } else false
+        }
     )
 
     // Track when streaming is active (to know when to send wake signals)

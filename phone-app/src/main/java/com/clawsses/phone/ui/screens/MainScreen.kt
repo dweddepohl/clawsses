@@ -73,6 +73,10 @@ fun MainScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // Initialize SDK early so cached pairing info is available for UI and auto-reconnect.
+    // RokidSdkManager is a singleton — this is safe to call multiple times.
+    remember { RokidSdkManager.initialize(context) }
+
     // Managers
     val glassesManager = remember { GlassesConnectionManager(context) }
     val deviceIdentity = remember { DeviceIdentity(context) }
@@ -137,6 +141,13 @@ fun MainScreen() {
 
         // Try to auto-reconnect to previously paired glasses on startup
         glassesManager.tryAutoReconnectOnStartup()
+
+        // Auto-connect to OpenClaw server if we have saved settings
+        if (openClawToken.isNotEmpty()) {
+            val portNum = openClawPort.toIntOrNull() ?: 18789
+            android.util.Log.i("MainScreen", "Auto-connecting to OpenClaw at $openClawHost:$portNum")
+            openClawClient.connect(openClawHost, portNum, openClawToken)
+        }
     }
 
     // Fetch session list when OpenClaw connects

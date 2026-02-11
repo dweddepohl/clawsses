@@ -35,6 +35,7 @@ class GlassesConnectionManager(private val context: Context) {
         private const val RECONNECT_BASE_DELAY_MS = 1000L   // Start with 1 second
         private const val RECONNECT_MAX_DELAY_MS = 60000L   // Cap at 60 seconds
         private const val RECONNECT_BACKOFF_MULTIPLIER = 1.5
+        private const val RECONNECT_TIMEOUT_MS = 10000L     // 10s timeout for silent failures
 
         // Rokid BLE Service UUID (glasses advertise with this UUID)
         val ROKID_SERVICE_UUID: UUID = UUID.fromString("00009100-0000-1000-8000-00805f9b34fb")
@@ -409,6 +410,9 @@ class GlassesConnectionManager(private val context: Context) {
      * Schedule auto-reconnect with exponential backoff.
      * Uses increasing delays (1s, 1.5s, 2.25s, ...) capped at 60 seconds.
      * Continues indefinitely until connection succeeds or user manually disconnects.
+     *
+     * Includes a timeout: if the SDK doesn't fire onConnected or onFailed within
+     * RECONNECT_TIMEOUT_MS, we assume the attempt failed silently and retry.
      */
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
@@ -439,8 +443,15 @@ class GlassesConnectionManager(private val context: Context) {
 
             if (RokidSdkManager.reconnect()) {
                 Log.i(TAG, "Auto-reconnect initiated (attempt $attempt)")
-                // State will change to Connected via onGlassesConnected callback
-                // or schedule another attempt via onGlassesDisconnected/onBluetoothFailed
+
+                // Timeout: if no callback fires within RECONNECT_TIMEOUT_MS, the SDK
+                // silently failed. Schedule another attempt.
+                delay(RECONNECT_TIMEOUT_MS)
+                val state = _connectionState.value
+                if (state is ConnectionState.Reconnecting || state is ConnectionState.Connecting) {
+                    Log.w(TAG, "Auto-reconnect attempt $attempt timed out (no SDK callback)")
+                    scheduleReconnect()
+                }
             } else {
                 Log.w(TAG, "Auto-reconnect failed (no saved connection info)")
                 _connectionState.value = ConnectionState.Disconnected

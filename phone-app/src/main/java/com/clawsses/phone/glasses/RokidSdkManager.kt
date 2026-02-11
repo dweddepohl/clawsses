@@ -712,52 +712,26 @@ object RokidSdkManager {
     /**
      * Attempt to reconnect to previously connected glasses.
      *
-     * Uses initBluetooth with a BluetoothDevice obtained from the saved MAC address.
-     * This is the full initialization path that sets up the RFCOMM channel properly,
-     * unlike connectBluetooth which only works when the SDK already has an active
-     * RFCOMM context from a prior initBluetooth call in the same session.
-     *
-     * Falls back to connectBluetooth if BluetoothDevice cannot be obtained (e.g. adapter
-     * unavailable), since the SDK singleton may still have valid state from a prior init.
+     * Per the Rokid SDK docs, reconnection uses connectBluetooth(socketUuid, macAddress)
+     * with credentials saved from the initial pairing. initBluetooth is only for first-time
+     * setup from a BLE scan result.
      */
     fun reconnect(): Boolean {
-        val mac = savedMacAddress
-        if (mac.isNullOrEmpty()) {
-            Log.w(TAG, "No saved MAC address for reconnection")
-            return false
-        }
-
-        val context = appContext ?: run {
-            Log.e(TAG, "SDK not initialized — cannot reconnect")
-            return false
-        }
-
-        // Try to get a BluetoothDevice from the saved MAC and use the full initBluetooth
-        // path. This properly re-establishes the RFCOMM socket even after Activity recreation
-        // or process restart.
-        try {
-            val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
-            if (adapter != null && adapter.isEnabled) {
-                val device = adapter.getRemoteDevice(mac)
-                Log.i(TAG, "Reconnecting via initBluetooth with saved MAC=$mac")
-                pendingConnect = true
-                cxrApi?.initBluetooth(context, device, bluetoothCallback)
-                return true
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to get BluetoothDevice from MAC=$mac: ${e.message}")
-        }
-
-        // Fallback: try connectBluetooth with saved socketUuid (works if SDK still has RFCOMM context)
         val socketUuid = savedSocketUuid
-        if (!socketUuid.isNullOrEmpty()) {
-            Log.i(TAG, "Falling back to connectBluetooth with saved socketUuid and macAddress")
-            connectBluetooth(socketUuid, mac)
-            return true
+        val mac = savedMacAddress
+        if (socketUuid.isNullOrEmpty() || mac.isNullOrEmpty()) {
+            Log.w(TAG, "No saved connection info for reconnection (socketUuid=$socketUuid, mac=$mac)")
+            return false
         }
 
-        Log.w(TAG, "No viable reconnection path")
-        return false
+        if (cxrApi == null) {
+            Log.e(TAG, "CxrApi is null — cannot reconnect")
+            return false
+        }
+
+        Log.i(TAG, "Reconnecting with saved socketUuid=$socketUuid, mac=$mac")
+        connectBluetoothInternal(socketUuid, mac, savedRokidAccount ?: "")
+        return true
     }
 
     /**

@@ -45,9 +45,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
 import kotlinx.coroutines.delay
 
 /**
@@ -425,7 +422,6 @@ fun HudScreen(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 // CONTENT AREA — chat messages
-                val showScrollHints = contentFocused && !state.isScrolledToEnd
                 ChatContentArea(
                     messages = state.messages,
                     agentState = state.agentState,
@@ -459,23 +455,17 @@ fun HudScreen(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // MENU BAR or SCROLL HINTS (scroll hints replace menu bar when scrolling)
-                if (showScrollHints) {
-                    ScrollHints(
-                        fontFamily = monoFontFamily
-                    )
-                } else {
-                    ChatMenuBar(
-                        selectedIndex = state.menuBarIndex,
-                        isFocused = menuFocused,
-                        hudPosition = state.hudPosition,
-                        batteryLevel = state.batteryLevel,
-                        batteryCharging = state.batteryCharging,
-                        currentTime = state.currentTime,
-                        fontFamily = monoFontFamily,
-                        alpha = menuAlpha
-                    )
-                }
+                // MENU BAR
+                ChatMenuBar(
+                    selectedIndex = state.menuBarIndex,
+                    isFocused = menuFocused,
+                    hudPosition = state.hudPosition,
+                    batteryLevel = state.batteryLevel,
+                    batteryCharging = state.batteryCharging,
+                    currentTime = state.currentTime,
+                    fontFamily = monoFontFamily,
+                    alpha = menuAlpha
+                )
             }
         }
 
@@ -818,7 +808,7 @@ private fun ChatMessageItem(
         false
     }
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .let {
@@ -828,25 +818,10 @@ private fun ChatMessageItem(
                     it.padding(end = 16.dp)
                 }
             },
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Top
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        // Mascot avatar for assistant messages
-        if (!isUser) {
-            Image(
-                painter = painterResource(id = R.mipmap.ic_launcher),
-                contentDescription = "Assistant",
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-        }
-
         Box(
             modifier = Modifier
-                .weight(1f, fill = false)
                 .let {
                     if (isUser) {
                         it.background(
@@ -1197,34 +1172,6 @@ private fun InputStagingArea(
                 }
             }
         }
-    }
-}
-
-// ============================================================================
-// SCROLL HINTS
-// ============================================================================
-
-@Composable
-private fun ScrollHints(
-    fontFamily: FontFamily,
-    modifier: Modifier = Modifier
-) {
-    val hintFontSize = 10.sp
-
-    Box(
-        modifier = modifier
-            .background(
-                Color.Black.copy(alpha = 0.85f),
-                RoundedCornerShape(6.dp)
-            )
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-    ) {
-        Text(
-            text = "1\u00D7tap: scroll to bottom \u2022 2\u00D7tap: exit scroll",
-            color = HudColors.cyan,
-            fontSize = hintFontSize,
-            fontFamily = fontFamily
-        )
     }
 }
 

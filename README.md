@@ -1,218 +1,173 @@
-# Claude Glasses Terminal
+# Clawsses
 
-A wearable terminal interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on [Rokid AR Lite](https://www.rokid.com/en/product/ar-lite/) glasses. View and interact with Claude Code through AR glasses using voice commands and touchpad gestures.
+An AI glasses companion for [OpenClaw](https://github.com/openclaw/openclaw). Talk to your AI assistant through AR glasses - see responses stream in your field of view, speak commands hands-free, and snap photos for visual context. Built for [Rokid AR Lite](https://www.rokid.com/en/product/ar-lite/) glasses.
 
-## See Claude Code While You Work
+## What It Does
 
-Imagine reviewing code changes while standing at a whiteboard, or dictating a database query while your hands are busy. Claude Glasses puts a terminal in your field of view, controlled entirely by voice and gestures.
+Clawsses connects your AR glasses to an OpenClaw Gateway, giving you a wearable AI interface:
 
-### Manage Multiple Sessions
+- **Voice-first interaction** - Long-press to speak, see the response appear in your HUD
+- **Live streaming** - AI responses stream token-by-token onto the glasses display
+- **Camera input** - Snap photos through the glasses camera and attach them to your message ("what am I looking at?")
+- **Session management** - Switch between multiple OpenClaw sessions from the glasses
+- **Text-to-speech** - Hear responses read aloud via ElevenLabs, controllable from the glasses
+- **Wake-on-message** - Glasses display wakes automatically when new messages arrive
+- **Slash commands** - Quick access to OpenClaw commands (`/model`, `/clear`, `/status`, etc.)
 
-<p align="center">
-  <img src="docs/images/Screenshot_20260111_154026.png" width="320" alt="Session selector showing multiple Claude Code sessions">
-</p>
-
-Switch between different Claude Code sessions on the fly. Each project gets its own persistent tmux session — navigate between them with swipes, select with a tap.
-
-### Voice-First Input
-
-<p align="center">
-  <img src="docs/images/Screenshot_20260111_154323.png" width="320" alt="Voice input showing natural language command">
-</p>
-
-Long-press the glasses side button and speak naturally. Voice recognition uses the glasses' 4-mic array via Bluetooth SCO, and works even when the phone screen is off (via foreground service).
-
-### Review Code Hands-Free
+### Screenshots
 
 <p align="center">
-  <img src="docs/images/Screenshot_20260111_154114.png" width="320" alt="Code diff view showing Claude's changes">
+  <img src="docs/images/Screenshot_20260111_154026.png" width="280" alt="Session picker">
+  <img src="docs/images/Screenshot_20260111_154323.png" width="280" alt="Voice input">
+  <img src="docs/images/Screenshot_20260111_154114.png" width="280" alt="Streaming response">
 </p>
-
-Scroll through diffs, read Claude's explanations, and navigate the terminal — all with simple gestures on the temple touchpad. The monochrome green display blends into your environment while keeping the code visible.
-
-### Bootstrapped
-
-This project was built using itself. Claude Glasses was used to build Claude Glasses.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   REMOTE SERVER                         │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │           server/ (Node.js)                     │    │
-│  │  • Runs Claude Code in tmux session             │    │
-│  │  • WebSocket endpoint for phone connection      │    │
-│  │  • Delta terminal updates (only changed lines)  │    │
-│  │  • Multi-session management                     │    │
-│  └─────────────────────────────────────────────────┘    │
-└──────────────────────────┬──────────────────────────────┘
-                           │ WebSocket
-┌──────────────────────────▼──────────────────────────────┐
-│                      PHONE                              │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │           phone-app/ (Android)                  │    │
-│  │  • CXR-M SDK for glasses communication         │    │
-│  │  • WebSocket client to server                   │    │
-│  │  • Voice recognition via glasses mic array      │    │
-│  │  • Foreground service for background operation  │    │
-│  │  • Bridges server ↔ glasses                     │    │
-│  └─────────────────────────────────────────────────┘    │
-└──────────────────────────┬──────────────────────────────┘
-                           │ BLE (CXR protocol)
-┌──────────────────────────▼──────────────────────────────┐
-│                     GLASSES                             │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │           glasses-app/ (Android)                │    │
-│  │  • CXR-S SDK for phone communication           │    │
-│  │  • HUD display (monochrome green, 480×640)      │    │
-│  │  • Touchpad gesture input (3 modes)             │    │
-│  │  • AI scene button triggers voice input         │    │
-│  └─────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-```
-
-## Project Structure
+The system is three components: a **phone app** that bridges everything, a **glasses app** that runs the HUD, and an **OpenClaw Gateway** that provides the AI backend.
 
 ```
-claude-glasses-terminal/
-├── phone-app/              # Android app for phone (CXR-M SDK)
-│   └── src/main/java/com/claudeglasses/phone/
-│       ├── glasses/        # Glasses connection management
-│       ├── terminal/       # WebSocket terminal client
-│       ├── voice/          # Voice command handling
-│       ├── service/        # Foreground service
-│       └── ui/             # Jetpack Compose UI
-│
-├── glasses-app/            # Android app for glasses (CXR-S SDK)
-│   └── src/main/java/com/claudeglasses/glasses/
-│       ├── ui/             # HUD display components
-│       ├── input/          # Gesture handling
-│       ├── service/        # Phone connection service
-│       └── debug/          # Emulator WebSocket client
-│
-├── shared/                 # Shared protocol definitions
-│
-└── server/                 # Node.js WebSocket server
-    └── src/
-        └── index.js        # Claude Code tmux wrapper
+OpenClaw Gateway ←─ WebSocket ──→ Phone App (Android) ←─ Bluetooth CXR ──→ Glasses App (Rokid)
+      │                                │                                        │
+  AI sessions                    Bridge + voice                          HUD + gestures
+  Chat streaming                 TTS playback                           Camera capture
+  Tool execution                 Wake management                        Session picker
 ```
+
+### Modules
+
+| Module | Description |
+|--------|-------------|
+| **phone-app/** | Android companion app. Connects to OpenClaw Gateway via WebSocket and to glasses via Rokid CXR-M SDK (Bluetooth). Handles voice recognition, TTS playback, wake signal coordination, and glasses APK sideloading. |
+| **glasses-app/** | HUD app running on Rokid glasses. Renders chat UI with Jetpack Compose on the 480x640 monochrome green micro-LED display. Handles touchpad gestures and camera capture. |
+| **shared/** | Protocol definitions (Gson-serialized data classes) used by both apps. |
 
 ## Setup
 
 ### Prerequisites
 
-- Android Studio (latest)
-- Node.js 18+
-- tmux (`brew install tmux` on macOS)
-- Claude Code CLI installed and configured
-- Rokid AR Lite glasses (RV101, YodaOS-Sprite)
+- Android Studio
+- Rokid AR Lite glasses (or emulator - see below)
 - Rokid developer account (for CXR SDK credentials)
+- A running [OpenClaw](https://github.com/openclaw/openclaw) Gateway
 
-### 1. Server Setup
+### 1. SDK Credentials
 
-```bash
-cd server
-npm install
-npm start
-```
-
-The server starts on port 8080 with a 64-column terminal optimized for the glasses HUD. Use Tailscale or another VPN to expose it to your phone on the go.
-
-### 2. SDK Credentials
-
-Add your Rokid CXR-M SDK credentials to `local.properties`:
+Create `local.properties` in the project root with your Rokid CXR SDK credentials:
 
 ```properties
-rokid.clientId=xxx
-rokid.clientSecret=xxx
-rokid.accessKey=xxx
+rokid.clientSecret=your-client-secret
+rokid.accessKey=your-access-key
 ```
 
-### 3. Phone App
+These are injected as `BuildConfig` fields at compile time and are required for Bluetooth pairing with the glasses.
 
-1. Open the project in Android Studio
-2. Build and install `phone-app` on your Android phone
-3. Configure the server URL in the app
+### 2. Build & Install
 
-### 4. Glasses App
-
-Using CXR-M SDK from your phone app:
-1. Build the `glasses-app` APK
-2. Use the phone app to push the APK to your glasses over WiFi
-
-Or via ADB (requires Rokid developer cable):
 ```bash
-adb install glasses-app/build/outputs/apk/debug/glasses-app-debug.apk
+# Build both apps (glasses APK is bundled into phone app assets automatically)
+./gradlew assembleDebug
+
+# Install phone app
+adb install phone-app/build/outputs/apk/debug/phone-app-debug.apk
 ```
+
+The phone app bundles the glasses APK and can push it to the glasses over WiFi P2P - no developer cable needed.
+
+### 3. Connect
+
+1. Open the phone app and configure your OpenClaw Gateway host, port, and token in Settings
+2. Scan for and connect to your Rokid glasses via Bluetooth
+3. The glasses HUD will show the connection status and your current session
 
 ## Usage
 
-### Gesture Controls
-
-The temple touchpad supports three modes, cycled via double-tap:
-
-| Mode | Forward/Backward Swipe | Tap | Double-Tap | Long Press |
-|------|------------------------|-----|------------|------------|
-| **SCROLL** | Scroll up/down | Jump to end | Switch mode | Voice input |
-| **NAVIGATE** | Arrow up/down | Enter | Switch mode | Voice input |
-| **COMMAND** | Tab / Escape | Shift-Tab | Switch mode | Voice input |
-
-**Swipe directions:**
-- Forward (towards eyes) = scroll up / arrow up / tab
-- Backward (towards ear) = scroll down / arrow down / escape
-
 ### Voice Input
 
-Long-press the glasses side button to activate voice recognition. Speak naturally — your speech is sent as a prompt to Claude Code. Special commands:
+Long-press on the glasses touchpad (or side button) to start voice recognition.
 
-| Say | Action |
-|-----|--------|
-| "slash help" | Types `/help` |
-| "slash compact" | Types `/compact` |
-| "escape" | Sends ESC key |
-| "scroll up/down" | Scrolls terminal |
-| "take screenshot" | Captures and sends glasses camera image |
-| *(anything else)* | Sent as text input to Claude Code |
+Two speech recognition backends are supported:
+- **OpenAI Realtime API** (primary) - streaming transcription via Whisper with server-side VAD, multi-segment speech support, and audio pre-buffering for zero-latency start
+- **Android SpeechRecognizer** (fallback) - used automatically when no OpenAI API key is configured
 
-### Hardware Buttons
+Configure your OpenAI API key in Settings > Voice to enable the primary backend.
 
-- Volume Up/Down: Scroll up/down
-- Back: ESC
+### Touchpad Gestures
+
+The glasses touchpad has two focus areas that change what gestures do:
+
+| Gesture | Content Area | Menu Bar |
+|---------|-------------|----------|
+| **Swipe forward** (→ eyes) | Scroll up | Previous menu item |
+| **Swipe backward** (→ ear) | Scroll down | Next menu item |
+| **Tap** | Jump to bottom | Execute menu action |
+| **Double-tap** | Switch to Menu | Switch to Content |
+| **Long-press** | Voice input | Voice input |
+
+### Menu Bar
+
+| Item | Action |
+|------|--------|
+| 📷 Photo | Capture a photo to attach to your next message (up to 4) |
+| ◎ Session | Open session picker - browse, switch, or create sessions |
+| █ Size | Cycle HUD position: Full → Bottom Half → Top Half |
+| … More | Font size, slash commands, toggle voice responses |
+
+### Camera
+
+Tap the Photo menu item to capture an image through the glasses camera. Photos are attached to your next voice message as base64-encoded images, enabling multimodal AI interactions ("what does this error message say?", "describe what I'm looking at").
+
+### Text-to-Speech
+
+Toggle voice responses from the More menu on the glasses. When enabled, AI responses are spoken aloud via ElevenLabs TTS. Configure your ElevenLabs API key and preferred voice in the phone app Settings.
+
+### Wake-on-Message
+
+When new content arrives (streaming responses, proactive messages, cron notifications), the phone automatically wakes the glasses display via the CXR SDK and delivers buffered messages once the glasses acknowledge readiness. A keep-alive mechanism prevents the display from sleeping during long streaming responses.
 
 ## Display
 
-The glasses use JBD 0.13" micro LED displays (per eye):
-- Resolution: **480×640** (portrait mode)
-- Pixel density: ~6,150 DPI
-- Monochrome green, 1500 nits
-- Terminal: **64 columns × 31 rows**
-- Pure black background (transparent on AR waveguide)
-- JetBrains Mono font for box-drawing characters
+The Rokid AR Lite uses JBD 0.13" micro-LED displays:
+- **Resolution:** 480x640 (portrait)
+- **Color:** Monochrome green on transparent AR waveguide
+- **Brightness:** 1500 nits
+- **Font:** JetBrains Mono
+- **Font sizes:** Compact / Normal / Comfortable / Large (configurable from glasses)
 
 ## Emulator Testing
 
-For development without physical glasses, debug builds use WebSocket instead of Bluetooth:
+You can develop without physical glasses using the built-in debug mode. In debug builds, Bluetooth is replaced with a local WebSocket connection:
 
-1. **Create a glasses emulator**: 480×640, 5.0" screen
-2. **Phone emulator** starts a WebSocket server on port 8081
-3. **Glasses emulator** connects to `10.0.2.2:8081`
+1. Create a glasses AVD: **480x640**, 5" screen
+2. Run the phone emulator - it starts a WebSocket server on port 8081
+3. Run the glasses emulator - it auto-connects to `10.0.2.2:8081`
 
 ```bash
-# Terminal 1: Start the server
-cd server && npm start
-
-# Terminal 2: Run phone app
+# Phone app (includes glasses APK in assets)
 ./gradlew :phone-app:installDebug
 
-# Terminal 3: Run glasses app
+# Glasses app
 ./gradlew :glasses-app:installDebug
 ```
 
-## Documentation
+Keyboard shortcuts in the glasses emulator: Volume keys = swipe, Enter = tap, Back = double-tap.
 
-- [CLAUDE.md](CLAUDE.md) - Development context and guidelines
-- [docs/ROKID.md](docs/ROKID.md) - Rokid hardware specs and SDK reference
+## OpenClaw Protocol
+
+The phone app implements the [OpenClaw Gateway protocol](https://docs.openclaw.ai):
+
+- **Authentication:** Token auth + Ed25519 device identity (keypair stored in Android Keystore)
+- **Chat:** Sends `chat.send`, receives streaming `chat` events with accumulated text (client diffs to extract new content)
+- **Sessions:** Full session management - list, switch, create, reset
+- **Auto-reconnect:** 3-second backoff on disconnect
+
+## Phone-Glasses Protocol
+
+Communication between phone and glasses uses JSON messages over the CXR SDK bridge (or WebSocket in debug mode):
+
+**Phone → Glasses:** `chat_message`, `agent_thinking`, `chat_stream`, `chat_stream_end`, `connection_update`, `session_list`, `voice_state`, `voice_result`, `wake_signal`, `tts_state`
+
+**Glasses → Phone:** `user_input` (text + optional photo), `list_sessions`, `switch_session`, `slash_command`, `start_voice`, `cancel_voice`, `request_more_history`, `wake_ack`, `tts_toggle`
 
 ## License
 

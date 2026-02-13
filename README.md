@@ -23,6 +23,14 @@ Clawsses connects your Rokid glasses to an OpenClaw Gateway, via your Android ph
 - **Wake-on-message** - Glasses display wakes automatically when new messages arrive
 - **Slash commands** - Quick access to OpenClaw commands (`/model`, `/clear`, `/status`, etc.)
 
+<p align="center">
+  <img src="docs/images/glasses-chat-menubar.png" width="280" alt="Glasses HUD - chat with menu bar">
+  &nbsp;&nbsp;
+  <img src="docs/images/phone-chat.png" width="180" alt="Phone app - chat view">
+  &nbsp;&nbsp;
+  <img src="docs/images/glasses-session-picker.png" width="280" alt="Glasses HUD - session picker">
+</p>
+
 ## Architecture
 
 The system is three components: a **phone app** that bridges everything, a **glasses app** that runs the HUD, and an **OpenClaw Gateway** that provides the AI backend.
@@ -77,6 +85,10 @@ The phone app bundles the glasses APK and can push it to the glasses over WiFi P
 
 ### 3. Connect
 
+<p align="center">
+  <img src="docs/images/phone-settings-top.png" width="260" alt="Phone app settings - server and voice configuration">
+</p>
+
 1. Open the phone app and configure your OpenClaw Gateway host, port, and token in Settings (I recommend using a VPN, like Tailscale and not connecting OpenClaw to the open Internet)
 2. Folder the legs to clse the glasses, and triple click the camera button to start pairing mode on the glasses.
 3. Scan for and connect to your Rokid glasses via Bluetooth
@@ -116,6 +128,14 @@ The glasses touchpad has two focus areas that change what gestures do:
 | ◎ Session | Open session picker - browse, switch, or create sessions |
 | █ Size | Cycle HUD position: Full → Bottom Half → Top Half |
 | … More | Font size, slash commands, toggle voice responses |
+
+<p align="center">
+  <img src="docs/images/glasses-session-picker.png" width="240" alt="Session picker">
+  &nbsp;&nbsp;
+  <img src="docs/images/glasses-slash-commands.png" width="240" alt="Slash commands">
+  &nbsp;&nbsp;
+  <img src="docs/images/glasses-more-menu.png" width="240" alt="More menu - font size, voice toggle">
+</p>
 
 ### Camera
 
@@ -171,6 +191,10 @@ Communication between phone and glasses uses JSON messages over the CXR SDK brid
 **Phone → Glasses:** `chat_message`, `agent_thinking`, `chat_stream`, `chat_stream_end`, `connection_update`, `session_list`, `voice_state`, `voice_result`, `wake_signal`, `tts_state`
 
 **Glasses → Phone:** `user_input` (text + optional photo), `list_sessions`, `switch_session`, `slash_command`, `start_voice`, `cancel_voice`, `request_more_history`, `wake_ack`, `tts_toggle`
+
+## Screenshots
+
+See the full [screenshot gallery](docs/SCREENSHOTS.md) for more images of the glasses HUD and phone app.
 
 ## License
 

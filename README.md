@@ -1,6 +1,6 @@
 # Clawsses
 
-Connect to [OpenClaw](https://github.com/openclaw/openclaw) with your [Rokid Glasses]([https://www.rokid.com/en/product/ar-lite/](https://global.rokid.com/pages/rokid-glasses)). Bring brings the power OpenClaw with you, wherever you go. Give it voice command, send it photos of what you're looking at and see the answers stream in on the screens inside the glasses and hear your molty speak. Built for [Rokid Glasses]([https://www.rokid.com/en/product/ar-lite/](https://global.rokid.com/pages/rokid-glasses)) glasses.
+Connect to [OpenClaw](https://github.com/openclaw/openclaw) with your [Rokid Glasses]([https://www.rokid.com/en/product/ar-lite/](https://global.rokid.com/pages/rokid-glasses)). Bring the power OpenClaw with you anywhere you go. Give it voice command, send it photos of what you're looking at and see the answers stream in on the screens inside the glasses and hear your molty speak. Built for [Rokid Glasses]([https://www.rokid.com/en/product/ar-lite/](https://global.rokid.com/pages/rokid-glasses)) glasses.
 
 ## What It Does
 

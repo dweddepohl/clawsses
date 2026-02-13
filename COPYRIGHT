@@ -25,7 +25,25 @@ is available. Contact Daan Weddepohl on Linkedin.
 
 THIRD-PARTY COMPONENTS
 
+Proprietary Components:
+
 This software uses the Rokid CXR SDK, which is proprietary software provided
 by Rokid Corporation under its own license terms. The CXR SDK is not covered
 by the AGPL-3.0 license of this project and is not redistributed as part of
 the source code. Users must obtain the SDK separately from Rokid.
+
+Open-Source Dependencies (Apache 2.0 License):
+
+- OkHttp - Copyright Square, Inc.
+- Retrofit - Copyright Square, Inc.
+- Gson - Copyright Google LLC
+- AndroidX / Jetpack libraries - Copyright Android Open Source Project
+- Kotlin Coroutines - Copyright JetBrains s.r.o.
+- dadb - Copyright Mobile.dev
+
+For full license texts, see https://www.apache.org/licenses/LICENSE-2.0
+
+Protocol Reference:
+
+- OpenClaw - Copyright Peter Steinberger (MIT License)
+  https://github.com/openclaw/openclaw

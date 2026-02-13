@@ -90,7 +90,7 @@ The phone app bundles the glasses APK and can push it to the glasses over WiFi P
 </p>
 
 1. Open the phone app and configure your OpenClaw Gateway host, port, and token in Settings (I recommend using a VPN, like Tailscale and not connecting OpenClaw to the open Internet)
-2. Folder the legs to clse the glasses, and triple click the camera button to start pairing mode on the glasses.
+2. Fold the right leg, and triple click the camera button to start pairing mode on the glasses.
 3. Scan for and connect to your Rokid glasses via Bluetooth
 4. Use the Install to glasses button in the settings screen to load the app onto the glasses via Wifi
 5. Put on the glasses and find the app in the last position of your apps screen

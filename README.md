@@ -1,10 +1,10 @@
 # Clawsses
 
-An AI glasses companion for [OpenClaw](https://github.com/openclaw/openclaw). Talk to your AI assistant through AR glasses - see responses stream in your field of view, speak commands hands-free, and snap photos for visual context. Built for [Rokid AR Lite](https://www.rokid.com/en/product/ar-lite/) glasses.
+Connect to [OpenClaw](https://github.com/openclaw/openclaw) with your [Rokid Glasses]([https://www.rokid.com/en/product/ar-lite/](https://global.rokid.com/pages/rokid-glasses)). Bring brings the power OpenClaw with you, wherever you go. Give it voice command, send it photos of what you're looking at and see the answers stream in on the screens inside the glasses and hear your molty speak. Built for [Rokid Glasses]([https://www.rokid.com/en/product/ar-lite/](https://global.rokid.com/pages/rokid-glasses)) glasses.
 
 ## What It Does
 
-Clawsses connects your AR glasses to an OpenClaw Gateway, giving you a wearable AI interface:
+Clawsses connects your Rokid glasses to an OpenClaw Gateway, via your Android phone, giving you a wearable AI interface:
 
 - **Voice-first interaction** - Long-press to speak, see the response appear in your HUD
 - **Live streaming** - AI responses stream token-by-token onto the glasses display
@@ -18,8 +18,6 @@ Clawsses connects your AR glasses to an OpenClaw Gateway, giving you a wearable 
 
 <p align="center">
   <img src="docs/images/Screenshot_20260111_154026.png" width="280" alt="Session picker">
-  <img src="docs/images/Screenshot_20260111_154323.png" width="280" alt="Voice input">
-  <img src="docs/images/Screenshot_20260111_154114.png" width="280" alt="Streaming response">
 </p>
 
 ## Architecture
@@ -47,7 +45,7 @@ OpenClaw Gateway ←─ WebSocket ──→ Phone App (Android) ←─ Bluetooth
 ### Prerequisites
 
 - Android Studio
-- Rokid AR Lite glasses (or emulator - see below)
+- Rokid Glasses (or emulator - see below)
 - Rokid developer account (for CXR SDK credentials)
 - A running [OpenClaw](https://github.com/openclaw/openclaw) Gateway
 
@@ -76,32 +74,35 @@ The phone app bundles the glasses APK and can push it to the glasses over WiFi P
 
 ### 3. Connect
 
-1. Open the phone app and configure your OpenClaw Gateway host, port, and token in Settings
-2. Scan for and connect to your Rokid glasses via Bluetooth
-3. The glasses HUD will show the connection status and your current session
+1. Open the phone app and configure your OpenClaw Gateway host, port, and token in Settings (I recommend using a VPN, like Tailscale and not connecting OpenClaw to the open Internet)
+2. Folder the legs to clse the glasses, and triple click the camera button to start pairing mode on the glasses.
+3. Scan for and connect to your Rokid glasses via Bluetooth
+4. Use the Install to glasses button in the settings screen to load the app onto the glasses via Wifi
+5. Put on the glasses and find the app in the last position of your apps screen
+6. The glasses HUD will show the connection status and your current session
 
 ## Usage
 
 ### Voice Input
 
-Long-press on the glasses touchpad (or side button) to start voice recognition.
+Long-press on the glasses temple to start voice recognition.
 
 Two speech recognition backends are supported:
-- **OpenAI Realtime API** (primary) - streaming transcription via Whisper with server-side VAD, multi-segment speech support, and audio pre-buffering for zero-latency start
-- **Android SpeechRecognizer** (fallback) - used automatically when no OpenAI API key is configured
+- **OpenAI Realtime API** (primary) - streaming transcription via Whisper with server-side VAD, multi-segment speech support, and audio pre-buffering for zero-latency start. Note: only shows the recognized speech once you stop speaking.
+- **Android SpeechRecognizer** (fallback) - used automatically when no OpenAI API key is configured; shows speech while you talk, but recognition isn't as great.
 
 Configure your OpenAI API key in Settings > Voice to enable the primary backend.
 
-### Touchpad Gestures
+### Temple Touchpad Gestures
 
 The glasses touchpad has two focus areas that change what gestures do:
 
-| Gesture | Content Area | Menu Bar |
+| Gesture | Message History | Menu Bar |
 |---------|-------------|----------|
 | **Swipe forward** (→ eyes) | Scroll up | Previous menu item |
 | **Swipe backward** (→ ear) | Scroll down | Next menu item |
-| **Tap** | Jump to bottom | Execute menu action |
-| **Double-tap** | Switch to Menu | Switch to Content |
+| **Tap** | Scroll to bottom | Execute menu action |
+| **Double-tap** | Jump to menu  | Exit app |
 | **Long-press** | Voice input | Voice input |
 
 ### Menu Bar
@@ -115,7 +116,7 @@ The glasses touchpad has two focus areas that change what gestures do:
 
 ### Camera
 
-Tap the Photo menu item to capture an image through the glasses camera. Photos are attached to your next voice message as base64-encoded images, enabling multimodal AI interactions ("what does this error message say?", "describe what I'm looking at").
+Tap the Photo menu item to capture an image through the glasses camera. Photos are attached to your next voice message as base64-encoded images, enabling multimodal AI interactions ("what does this error message say?", "describe what I'm looking at"). You can attach up to 4 photos.
 
 ### Text-to-Speech
 
@@ -136,12 +137,13 @@ The Rokid AR Lite uses JBD 0.13" micro-LED displays:
 
 ## Emulator Testing
 
-You can develop without physical glasses using the built-in debug mode. In debug builds, Bluetooth is replaced with a local WebSocket connection:
+You can develop without physical glasses by using the built-in debug mode. In debug builds, Bluetooth is replaced with a local WebSocket connection:
 
 1. Create a glasses AVD: **480x640**, 5" screen
 2. Run the phone emulator - it starts a WebSocket server on port 8081
-3. Run the glasses emulator - it auto-connects to `10.0.2.2:8081`
-
+3. Run the adb command as specified in the settings screen
+4. Run the glasses emulator - it auto-connects to `10.0.2.2:8081`
+   
 ```bash
 # Phone app (includes glasses APK in assets)
 ./gradlew :phone-app:installDebug
@@ -149,8 +151,6 @@ You can develop without physical glasses using the built-in debug mode. In debug
 # Glasses app
 ./gradlew :glasses-app:installDebug
 ```
-
-Keyboard shortcuts in the glasses emulator: Volume keys = swipe, Enter = tap, Back = double-tap.
 
 ## OpenClaw Protocol
 

@@ -171,4 +171,12 @@ Communication between phone and glasses uses JSON messages over the CXR SDK brid
 
 ## License
 
-MIT
+Copyright (C) 2026 Pohlster BV
+
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
+
+You are free to use, modify, and distribute this software under the terms of the AGPL-3.0. Any modified versions must also be made available under the same license.
+
+**Commercial licensing:** If you want to use Clawsses in a closed-source product, a commercial license is available. Contact [daan@pohlster.com](mailto:daan@pohlster.com).
+
+**Third-party components:** This project uses the Rokid CXR SDK, which is proprietary and licensed separately by Rokid Corporation. It is not redistributed as part of this source code.

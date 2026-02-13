@@ -23,12 +23,6 @@ Clawsses connects your Rokid glasses to an OpenClaw Gateway, via your Android ph
 - **Wake-on-message** - Glasses display wakes automatically when new messages arrive
 - **Slash commands** - Quick access to OpenClaw commands (`/model`, `/clear`, `/status`, etc.)
 
-### Screenshots
-
-<p align="center">
-  <img src="docs/images/Screenshot_20260111_154026.png" width="280" alt="Session picker">
-</p>
-
 ## Architecture
 
 The system is three components: a **phone app** that bridges everything, a **glasses app** that runs the HUD, and an **OpenClaw Gateway** that provides the AI backend.

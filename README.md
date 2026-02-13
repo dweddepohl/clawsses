@@ -204,6 +204,6 @@ This project is licensed under the [GNU Affero General Public License v3.0](LICE
 
 You are free to use, modify, and distribute this software under the terms of the AGPL-3.0. Any modified versions must also be made available under the same license.
 
-**Commercial licensing:** If you want to use Clawsses in a closed-source product, a commercial license is available. Contact [daan@pohlster.com](mailto:daan@pohlster.com).
+**Commercial licensing:** If you want to use Clawsses in a commercial / closed-source product, a commercial license is available. Contact Daan Weddepohl on Linkedin.
 
 **Third-party components:** This project uses the Rokid CXR SDK, which is proprietary and licensed separately by Rokid Corporation. It is not redistributed as part of this source code.

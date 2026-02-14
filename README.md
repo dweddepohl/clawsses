@@ -1,6 +1,6 @@
 # Clawsses
 
-Connect to your [OpenClaw](https://github.com/openclaw/openclaw) server 🦞 with your [Rokid Glasses](https://global.rokid.com/pages/rokid-glasses) 🕶️. Bring the power OpenClaw with you anywhere you go. Give it voice command, send it photos of what you're looking at and see the answers stream in on the screens inside the glasses and hear your molty speak. Built for [Rokid Glasses]([https://www.rokid.com/en/product/ar-lite/](https://global.rokid.com/pages/rokid-glasses)) glasses.
+Connect to your [OpenClaw](https://github.com/openclaw/openclaw) server 🦞 with your [Rokid Glasses](https://global.rokid.com/pages/rokid-glasses) 🕶️. Bring the power of OpenClaw with you anywhere you go. Give it voice command, send it photos of what you're looking at and see the answers stream in on the screens inside the glasses and hear your molty speak. Built for [Rokid Glasses]([https://www.rokid.com/en/product/ar-lite/](https://global.rokid.com/pages/rokid-glasses)) glasses.
 
 <p align="center">
   <img src="docs/images/clawsses-hero.jpg" width="700" alt="Clawsses - wearable AI on Rokid Glasses">

@@ -32,8 +32,8 @@ class DeviceIdentity(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private var privateKeyParams: Ed25519PrivateKeyParameters
-    private var publicKeyParams: Ed25519PublicKeyParameters
+    private lateinit var privateKeyParams: Ed25519PrivateKeyParameters
+    private lateinit var publicKeyParams: Ed25519PublicKeyParameters
 
     /** SHA-256 hex fingerprint of the raw 32-byte public key */
     val deviceId: String

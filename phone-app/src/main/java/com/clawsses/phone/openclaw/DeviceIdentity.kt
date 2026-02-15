@@ -3,26 +3,21 @@ package com.clawsses.phone.openclaw
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import java.security.KeyPairGenerator
+import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
+import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
 import java.security.MessageDigest
-import java.security.PrivateKey
-import java.security.PublicKey
-import java.security.Signature
-import java.security.KeyFactory
-import java.security.spec.PKCS8EncodedKeySpec
-import java.security.spec.X509EncodedKeySpec
-import java.security.spec.NamedParameterSpec
+import java.security.SecureRandom
 import java.util.Base64
 
 /**
  * Manages Ed25519 device identity for OpenClaw Gateway authentication.
  *
- * Generates an Ed25519 keypair in software (not AndroidKeyStore, since many
- * devices don't support Ed25519 in hardware). Keys are persisted as base64 in
- * SharedPreferences and the raw 32-byte public key is used for device identity.
- *
- * On each connect, signs the structured auth payload with the private key
- * to prove device identity.
+ * Uses BouncyCastle's Ed25519 implementation directly since Android's
+ * built-in crypto providers don't reliably support Ed25519 across devices.
+ * Keys are persisted as base64 in SharedPreferences.
  */
 class DeviceIdentity(context: Context) {
 
@@ -30,22 +25,17 @@ class DeviceIdentity(context: Context) {
         private const val TAG = "DeviceIdentity"
         private const val PREFS_NAME = "clawsses_device_identity"
         private const val KEY_DEVICE_TOKEN = "device_token"
-        private const val KEY_PRIVATE_KEY = "ed25519_private_key"
-        private const val KEY_PUBLIC_KEY = "ed25519_public_key"
-        // Ed25519 SPKI prefix: 30 2a 30 05 06 03 2b 65 70 03 21 00
-        private val ED25519_SPKI_PREFIX = byteArrayOf(
-            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65,
-            0x70, 0x03, 0x21, 0x00
-        )
+        private const val KEY_PRIVATE_KEY = "ed25519_private_key_raw"
+        private const val KEY_PUBLIC_KEY = "ed25519_public_key_raw"
     }
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private var publicKey: PublicKey
-    private var privateKey: PrivateKey
+    private var privateKeyParams: Ed25519PrivateKeyParameters
+    private var publicKeyParams: Ed25519PublicKeyParameters
 
-    /** SHA-256 hex fingerprint of the raw public key bytes */
+    /** SHA-256 hex fingerprint of the raw 32-byte public key */
     val deviceId: String
 
     /** Raw 32-byte public key, base64url-encoded (no padding) */
@@ -63,45 +53,26 @@ class DeviceIdentity(context: Context) {
         val storedPub = prefs.getString(KEY_PUBLIC_KEY, null)
 
         if (storedPriv != null && storedPub != null) {
-            // Restore existing keypair from SharedPreferences
             try {
                 val privBytes = Base64.getDecoder().decode(storedPriv)
                 val pubBytes = Base64.getDecoder().decode(storedPub)
-                val kf = KeyFactory.getInstance("Ed25519")
-                privateKey = kf.generatePrivate(PKCS8EncodedKeySpec(privBytes))
-                publicKey = kf.generatePublic(X509EncodedKeySpec(pubBytes))
-
-                // Verify it's actually Ed25519 (44-byte SPKI = 12 prefix + 32 key)
-                if (publicKey.encoded.size == 44) {
+                if (privBytes.size == 32 && pubBytes.size == 32) {
+                    privateKeyParams = Ed25519PrivateKeyParameters(privBytes, 0)
+                    publicKeyParams = Ed25519PublicKeyParameters(pubBytes, 0)
                     Log.d(TAG, "Restored Ed25519 keypair from SharedPreferences")
                 } else {
-                    Log.w(TAG, "Stored key has wrong size (${publicKey.encoded.size}), regenerating")
-                    throw IllegalStateException("Wrong key type stored")
+                    Log.w(TAG, "Stored key has wrong size (priv=${privBytes.size}, pub=${pubBytes.size}), regenerating")
+                    throw IllegalStateException("Wrong key size")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to restore keypair, generating new one", e)
-                val kp = generateEd25519KeyPair()
-                privateKey = kp.first
-                publicKey = kp.second
-                persistKeyPair()
+                generateAndPersistKeyPair()
             }
         } else {
-            // Generate new keypair
-            val kp = generateEd25519KeyPair()
-            privateKey = kp.first
-            publicKey = kp.second
-            persistKeyPair()
+            generateAndPersistKeyPair()
         }
 
-        // Extract raw 32-byte Ed25519 public key from SPKI encoding
-        val spki = publicKey.encoded
-        val rawPublicKey = if (spki.size == 44 &&
-            spki.take(ED25519_SPKI_PREFIX.size) == ED25519_SPKI_PREFIX.toList()) {
-            spki.copyOfRange(ED25519_SPKI_PREFIX.size, spki.size)
-        } else {
-            Log.e(TAG, "Unexpected SPKI size: ${spki.size}, hex: ${spki.joinToString("") { "%02x".format(it) }}")
-            spki.takeLast(32).toByteArray()
-        }
+        val rawPublicKey = publicKeyParams.encoded // 32 bytes
 
         deviceId = MessageDigest.getInstance("SHA-256")
             .digest(rawPublicKey)
@@ -111,7 +82,7 @@ class DeviceIdentity(context: Context) {
             .encodeToString(rawPublicKey)
 
         Log.d(TAG, "Device ID: ${deviceId.take(16)}...")
-        Log.d(TAG, "Public key algo: ${publicKey.algorithm}, SPKI size: ${spki.size}, raw key size: ${rawPublicKey.size}")
+        Log.d(TAG, "Public key (base64url): $publicKeyBase64Url (${rawPublicKey.size} bytes)")
     }
 
     /**
@@ -140,51 +111,32 @@ class DeviceIdentity(context: Context) {
         ).joinToString("|")
         Log.d(TAG, "Auth payload to sign: ${payload.take(120)}...")
         val sig = sign(payload.toByteArray(Charsets.UTF_8))
-        Log.d(TAG, "Signature size: ${Base64.getUrlDecoder().decode(sig + "==").size} bytes")
+        Log.d(TAG, "Signature: ${sig.take(20)}... (${Base64.getUrlDecoder().decode(sig + "==").size} bytes)")
         return sig
     }
 
     private fun sign(data: ByteArray): String {
-        val signer = Signature.getInstance("Ed25519")
-        signer.initSign(privateKey)
-        signer.update(data)
-        val sig = signer.sign()
+        val signer = Ed25519Signer()
+        signer.init(true, privateKeyParams)
+        signer.update(data, 0, data.size)
+        val sig = signer.generateSignature()
         return Base64.getUrlEncoder().withoutPadding().encodeToString(sig)
     }
 
-    private fun generateEd25519KeyPair(): Pair<PrivateKey, PublicKey> {
-        // Find a software (non-AndroidKeyStore) provider for Ed25519
-        val algoNames = listOf("Ed25519", "EdDSA")
-        for (algoName in algoNames) {
-            for (provider in java.security.Security.getProviders()) {
-                if (provider.name == "AndroidKeyStore") continue // Skip hardware keystore
-                try {
-                    val kpg = KeyPairGenerator.getInstance(algoName, provider)
-                    if (algoName == "EdDSA") {
-                        kpg.initialize(NamedParameterSpec("Ed25519"))
-                    }
-                    val keyPair = kpg.generateKeyPair()
-                    Log.i(TAG, "Generated Ed25519 keypair via provider=${provider.name}, " +
-                            "algo=$algoName, pub SPKI size=${keyPair.public.encoded.size}")
-                    return Pair(keyPair.private, keyPair.public)
-                } catch (e: Exception) {
-                    Log.d(TAG, "Provider ${provider.name} doesn't support $algoName: ${e.message}")
-                }
-            }
-        }
-        throw IllegalStateException("No software Ed25519 provider found. " +
-                "Available providers: ${java.security.Security.getProviders().joinToString { it.name }}")
-    }
+    private fun generateAndPersistKeyPair() {
+        val generator = Ed25519KeyPairGenerator()
+        generator.init(Ed25519KeyGenerationParameters(SecureRandom()))
+        val keyPair = generator.generateKeyPair()
+        privateKeyParams = keyPair.private as Ed25519PrivateKeyParameters
+        publicKeyParams = keyPair.public as Ed25519PublicKeyParameters
 
-    private fun persistKeyPair() {
-        val privB64 = Base64.getEncoder().encodeToString(privateKey.encoded)
-        val pubB64 = Base64.getEncoder().encodeToString(publicKey.encoded)
+        // Persist raw 32-byte keys
         prefs.edit()
-            .putString(KEY_PRIVATE_KEY, privB64)
-            .putString(KEY_PUBLIC_KEY, pubB64)
+            .putString(KEY_PRIVATE_KEY, Base64.getEncoder().encodeToString(privateKeyParams.encoded))
+            .putString(KEY_PUBLIC_KEY, Base64.getEncoder().encodeToString(publicKeyParams.encoded))
+            .remove(KEY_DEVICE_TOKEN) // Clear stale token since deviceId changes
             .apply()
-        // Clear any stale device token since deviceId will change
-        prefs.edit().remove(KEY_DEVICE_TOKEN).apply()
-        Log.d(TAG, "Persisted Ed25519 keypair to SharedPreferences")
+
+        Log.i(TAG, "Generated and persisted new Ed25519 keypair")
     }
 }

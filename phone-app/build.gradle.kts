@@ -117,6 +117,9 @@ dependencies {
     // ADB over WiFi for APK installation on glasses
     implementation("dev.mobile:dadb:1.2.10")
 
+    // Ed25519 signing (Android's bundled BouncyCastle doesn't include EdDSA)
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

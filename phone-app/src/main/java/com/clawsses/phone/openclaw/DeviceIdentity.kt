@@ -120,7 +120,12 @@ class DeviceIdentity(context: Context) {
             token,
             nonce
         ).joinToString("|")
-        return sign(payload.toByteArray(Charsets.UTF_8))
+        Log.d(TAG, "Auth payload to sign: $payload")
+        Log.d(TAG, "Auth payload bytes (hex): ${payload.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) }}")
+        val sig = sign(payload.toByteArray(Charsets.UTF_8))
+        Log.d(TAG, "Signature (base64url): $sig")
+        Log.d(TAG, "Public key (base64url): $publicKeyBase64Url")
+        return sig
     }
 
     private fun sign(data: ByteArray): String {

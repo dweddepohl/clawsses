@@ -638,11 +638,21 @@ class OpenClawClient(
                     })
 
                     // Device identity for pairing
+                    val signedAtMs = System.currentTimeMillis()
+                    val scopesList = listOf("operator.admin", "operator.read", "operator.write")
                     add("device", JsonObject().apply {
                         addProperty("id", deviceIdentity.deviceId)
                         addProperty("publicKey", deviceIdentity.publicKeyBase64Url)
-                        addProperty("signature", deviceIdentity.signNonce(nonce))
-                        addProperty("signedAt", System.currentTimeMillis())
+                        addProperty("signature", deviceIdentity.signAuthPayload(
+                            clientId = "openclaw-control-ui",
+                            clientMode = "ui",
+                            role = "operator",
+                            scopes = scopesList,
+                            signedAtMs = signedAtMs,
+                            token = token,
+                            nonce = nonce
+                        ))
+                        addProperty("signedAt", signedAtMs)
                         addProperty("nonce", nonce)
                         val savedToken = deviceIdentity.deviceToken
                         if (savedToken != null) {

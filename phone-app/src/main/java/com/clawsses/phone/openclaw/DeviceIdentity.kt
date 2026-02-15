@@ -93,9 +93,40 @@ class DeviceIdentity(context: Context) {
      * Returns the signature as a base64url-encoded string (no padding).
      */
     fun signNonce(nonce: String): String {
+        return sign(nonce.toByteArray(Charsets.UTF_8))
+    }
+
+    /**
+     * Build and sign the device auth payload per OpenClaw protocol v2.
+     * Payload format: "v2|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce"
+     */
+    fun signAuthPayload(
+        clientId: String,
+        clientMode: String,
+        role: String,
+        scopes: List<String>,
+        signedAtMs: Long,
+        token: String,
+        nonce: String
+    ): String {
+        val payload = listOf(
+            "v2",
+            deviceId,
+            clientId,
+            clientMode,
+            role,
+            scopes.joinToString(","),
+            signedAtMs.toString(),
+            token,
+            nonce
+        ).joinToString("|")
+        return sign(payload.toByteArray(Charsets.UTF_8))
+    }
+
+    private fun sign(data: ByteArray): String {
         val signer = Signature.getInstance("Ed25519")
         signer.initSign(privateKey)
-        signer.update(nonce.toByteArray(Charsets.UTF_8))
+        signer.update(data)
         val sig = signer.sign()
         return Base64.getUrlEncoder().withoutPadding().encodeToString(sig)
     }

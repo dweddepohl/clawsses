@@ -620,7 +620,7 @@ class OpenClawClient(
                     addProperty("maxProtocol", PROTOCOL_VERSION)
 
                     add("client", JsonObject().apply {
-                        addProperty("id", "clawsses-android")
+                        addProperty("id", "openclaw-control-ui")
                         addProperty("version", "1.0.0")
                         addProperty("platform", "android")
                         addProperty("mode", "ui")
@@ -639,7 +639,7 @@ class OpenClawClient(
 
                     // Device identity for pairing
                     add("device", JsonObject().apply {
-                        addProperty("deviceId", deviceIdentity.deviceId)
+                        addProperty("id", deviceIdentity.deviceId)
                         addProperty("publicKey", deviceIdentity.publicKeyBase64Url)
                         val savedToken = deviceIdentity.deviceToken
                         if (savedToken != null) {
@@ -647,6 +647,7 @@ class OpenClawClient(
                         }
                         if (nonce != null) {
                             addProperty("signature", deviceIdentity.signNonce(nonce))
+                            addProperty("signedAt", System.currentTimeMillis())
                         }
                     })
 

@@ -641,13 +641,12 @@ class OpenClawClient(
                     add("device", JsonObject().apply {
                         addProperty("id", deviceIdentity.deviceId)
                         addProperty("publicKey", deviceIdentity.publicKeyBase64Url)
+                        addProperty("signature", deviceIdentity.signNonce(nonce))
+                        addProperty("signedAt", System.currentTimeMillis())
+                        addProperty("nonce", nonce)
                         val savedToken = deviceIdentity.deviceToken
                         if (savedToken != null) {
                             addProperty("deviceToken", savedToken)
-                        }
-                        if (nonce != null) {
-                            addProperty("signature", deviceIdentity.signNonce(nonce))
-                            addProperty("signedAt", System.currentTimeMillis())
                         }
                     })
 

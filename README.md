@@ -55,12 +55,22 @@ OpenClaw Gateway ←─ WebSocket ──→ Phone App (Android) ←─ Bluetooth
 
 ### Prerequisites
 
-- Android Studio
-- Rokid Glasses (or emulator - see below)
-- Rokid developer account (for CXR SDK credentials)
+- [Git](https://git-scm.com/download/)
+- [Android Studio](https://developer.android.com/studio)
+- Rokid Glasses (or emulator - see [Emulator Testing](#emulator-testing))
+- A [Rokid developer account](https://developer.rokid.com/) for CXR SDK credentials (client secret + access key)
 - A running [OpenClaw](https://github.com/openclaw/openclaw) Gateway
 
-### 1. SDK Credentials
+### 1. Enable USB Debugging on Your Phone
+
+To install and debug the app on your Android phone:
+
+1. Go to **Settings → About Phone** and tap **Build Number** 7 times to enable Developer Options
+2. Go to **Settings → Developer Options** and enable **USB Debugging**
+3. Connect your phone via USB cable
+4. Accept the **"Allow USB Debugging?"** prompt on your phone
+
+### 2. SDK Credentials
 
 Create `local.properties` in the project root with your Rokid CXR SDK credentials:
 
@@ -69,21 +79,61 @@ rokid.clientSecret=your-client-secret
 rokid.accessKey=your-access-key
 ```
 
+You can create this file in Android Studio (right-click the project root → **New → File** → name it `local.properties`) or from the command line:
+
+```bash
+echo 'rokid.clientSecret=your-client-secret' > local.properties
+echo 'rokid.accessKey=your-access-key' >> local.properties
+```
+
 These are injected as `BuildConfig` fields at compile time and are required for Bluetooth pairing with the glasses.
 
-### 2. Build & Install
+### 3. OpenClaw Gateway Setup
+
+The phone app connects to your OpenClaw Gateway via WebSocket. A few things to configure:
+
+**Set a gateway token** (used by the app to authenticate):
+```bash
+openclaw config set gateway.auth.token <your-token>
+```
+
+**Bind to your LAN interface.** By default, the gateway listens on loopback (`127.0.0.1`) only. To allow connections from your phone on the same network, change the bind address:
+```bash
+openclaw config set gateway.host 0.0.0.0
+openclaw gateway restart
+```
+
+**For remote access** (outside your local WiFi), use [Tailscale](https://tailscale.com/) or another VPN rather than exposing the gateway to the public internet.
+
+**Device approval:** The first connection from the app will fail — this is expected. OpenClaw requires you to approve new devices:
+
+```bash
+# After the first connection attempt, list pending devices
+openclaw devices list
+
+# Approve the device
+openclaw devices approve <requestId>
+```
+
+After approval, the app will automatically reconnect.
+
+### 4. Build & Install
+
+Make sure to select the **`phone-app`** module (not `app`) in the run configuration dropdown at the top of Android Studio.
 
 ```bash
 # Build both apps (glasses APK is bundled into phone app assets automatically)
 ./gradlew assembleDebug
 
-# Install phone app
+# Install phone app via command line...
 adb install phone-app/build/outputs/apk/debug/phone-app-debug.apk
+
+# ...or just click the green ▶ Play button in Android Studio
 ```
 
 The phone app bundles the glasses APK and can push it to the glasses over WiFi P2P - no developer cable needed.
 
-### 3. Connect
+### 5. Connect
 
 <p align="center">
   <img src="docs/images/phone-settings-top.png" width="260" alt="Phone app settings - server and voice configuration">
@@ -206,6 +256,44 @@ Communication between phone and glasses uses JSON messages over the CXR SDK brid
 ## Screenshots
 
 See the full [screenshot gallery](docs/SCREENSHOTS.md) for more images of the glasses HUD and phone app.
+
+## Troubleshooting
+
+### "Connection refused" / app won't connect
+
+- Verify the OpenClaw Gateway is running and the correct IP, port, and token are entered in the app's Settings
+- Make sure the gateway is bound to your LAN interface (`0.0.0.0`), not loopback (`127.0.0.1`) — see [Gateway Setup](#3-openclaw-gateway-setup)
+- Check that your phone is on the same WiFi network as the machine running the gateway
+- For remote access (outside your LAN), you need [Tailscale](https://tailscale.com/) or a VPN
+
+### "Pairing required" / first connection fails
+
+This is normal! OpenClaw requires device approval before allowing connections:
+
+1. The first connection attempt will be rejected
+2. Run `openclaw devices list` to see the pending device
+3. Run `openclaw devices approve <requestId>` to approve it
+4. The app will automatically reconnect
+
+### App crashes on startup
+
+- Ensure `local.properties` exists in the project root with valid Rokid CXR SDK credentials
+- Try a clean build: **Build → Clean Project**, then **Build → Rebuild Project**
+
+### Glasses app installation fails
+
+- Retry the installation from the phone app settings
+- If it keeps failing, unpair and re-pair the Bluetooth connection with the glasses, then try again
+
+### Voice recognition not working
+
+- Without an OpenAI API key, the app falls back to Android's built-in speech recognition
+- For better results, add your OpenAI API key in **Settings → Voice**
+
+### No audio / TTS not working
+
+- Configure your ElevenLabs API key in the phone app **Settings**
+- On the glasses, make sure TTS is enabled via the **More** menu (… → toggle voice responses)
 
 ## License
 

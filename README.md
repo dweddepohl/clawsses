@@ -1,4 +1,4 @@
-NOTE: Connecting to the gateway required disabling device security in the previous version (Feb 13). That is now fixed, pull the latest version and retry if you had issues connecting to your gateway (and read the Connect section below on how to approve devices)
+NOTE: Connecting to the gateway required disabling device security in the previous version (Feb 13). That is now fixed, pull the latest version and retry if you had issues connecting to your gateway (and read the Connect section below on how to approve devices).
 
 # Clawsses
 

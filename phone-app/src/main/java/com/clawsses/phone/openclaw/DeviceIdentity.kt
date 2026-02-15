@@ -153,19 +153,27 @@ class DeviceIdentity(context: Context) {
     }
 
     private fun generateEd25519KeyPair(): Pair<PrivateKey, PublicKey> {
-        // Try Ed25519 first, then EdDSA with named parameter
-        val kpg = try {
-            KeyPairGenerator.getInstance("Ed25519")
-        } catch (e: Exception) {
-            Log.d(TAG, "Ed25519 not available, trying EdDSA with NamedParameterSpec")
-            KeyPairGenerator.getInstance("EdDSA").also {
-                it.initialize(NamedParameterSpec("Ed25519"))
+        // Find a software (non-AndroidKeyStore) provider for Ed25519
+        val algoNames = listOf("Ed25519", "EdDSA")
+        for (algoName in algoNames) {
+            for (provider in java.security.Security.getProviders()) {
+                if (provider.name == "AndroidKeyStore") continue // Skip hardware keystore
+                try {
+                    val kpg = KeyPairGenerator.getInstance(algoName, provider)
+                    if (algoName == "EdDSA") {
+                        kpg.initialize(NamedParameterSpec("Ed25519"))
+                    }
+                    val keyPair = kpg.generateKeyPair()
+                    Log.i(TAG, "Generated Ed25519 keypair via provider=${provider.name}, " +
+                            "algo=$algoName, pub SPKI size=${keyPair.public.encoded.size}")
+                    return Pair(keyPair.private, keyPair.public)
+                } catch (e: Exception) {
+                    Log.d(TAG, "Provider ${provider.name} doesn't support $algoName: ${e.message}")
+                }
             }
         }
-        val keyPair = kpg.generateKeyPair()
-        Log.i(TAG, "Generated new Ed25519 keypair (algo=${keyPair.private.algorithm}, " +
-                "pub SPKI size=${keyPair.public.encoded.size})")
-        return Pair(keyPair.private, keyPair.public)
+        throw IllegalStateException("No software Ed25519 provider found. " +
+                "Available providers: ${java.security.Security.getProviders().joinToString { it.name }}")
     }
 
     private fun persistKeyPair() {

@@ -30,6 +30,11 @@ class DeviceIdentity(context: Context) {
         private const val PREFS_NAME = "clawsses_device_identity"
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEYSTORE_ALIAS = "clawsses_ed25519_device_key"
+        // Ed25519 SPKI prefix (same as OpenClaw gateway uses)
+        private val ED25519_SPKI_PREFIX = byteArrayOf(
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65,
+            0x70, 0x03, 0x21, 0x00
+        )
     }
 
     private val prefs: SharedPreferences =
@@ -55,16 +60,40 @@ class DeviceIdentity(context: Context) {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
 
+        // Delete any existing key that might be the wrong type (e.g., EC instead of Ed25519)
+        if (keyStore.containsAlias(KEYSTORE_ALIAS)) {
+            val existingEntry = keyStore.getEntry(KEYSTORE_ALIAS, null) as? KeyStore.PrivateKeyEntry
+            val existingAlgo = existingEntry?.privateKey?.algorithm ?: "unknown"
+            Log.d(TAG, "Existing key algorithm: $existingAlgo")
+            if (existingAlgo != "Ed25519" && existingAlgo != "EdDSA") {
+                Log.w(TAG, "Existing key is $existingAlgo, not Ed25519 — deleting and regenerating")
+                keyStore.deleteEntry(KEYSTORE_ALIAS)
+            }
+        }
+
         if (!keyStore.containsAlias(KEYSTORE_ALIAS)) {
-            // Generate new keypair in Android Keystore
-            val kpg = KeyPairGenerator.getInstance("Ed25519", "AndroidKeyStore")
-            kpg.initialize(
-                KeyGenParameterSpec.Builder(KEYSTORE_ALIAS, KeyProperties.PURPOSE_SIGN)
-                    .setDigests(KeyProperties.DIGEST_NONE)
-                    .build()
-            )
-            kpg.generateKeyPair()
-            Log.i(TAG, "Generated new Ed25519 keypair in Android Keystore")
+            // Generate new Ed25519 keypair in Android Keystore
+            try {
+                val kpg = KeyPairGenerator.getInstance("Ed25519", "AndroidKeyStore")
+                kpg.initialize(
+                    KeyGenParameterSpec.Builder(KEYSTORE_ALIAS, KeyProperties.PURPOSE_SIGN)
+                        .setDigests(KeyProperties.DIGEST_NONE)
+                        .build()
+                )
+                kpg.generateKeyPair()
+                Log.i(TAG, "Generated new Ed25519 keypair in Android Keystore")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to generate Ed25519 in AndroidKeyStore, trying EdDSA", e)
+                // Some devices use "EdDSA" instead of "Ed25519"
+                val kpg = KeyPairGenerator.getInstance("EdDSA", "AndroidKeyStore")
+                kpg.initialize(
+                    KeyGenParameterSpec.Builder(KEYSTORE_ALIAS, KeyProperties.PURPOSE_SIGN)
+                        .setDigests(KeyProperties.DIGEST_NONE)
+                        .build()
+                )
+                kpg.generateKeyPair()
+                Log.i(TAG, "Generated new EdDSA keypair in Android Keystore")
+            }
         } else {
             Log.d(TAG, "Restored existing Ed25519 keypair from Android Keystore")
         }
@@ -73,8 +102,22 @@ class DeviceIdentity(context: Context) {
         privateKey = entry.privateKey
         publicKey = entry.certificate.publicKey
 
-        // Derive raw 32-byte public key (last 32 bytes of X.509 encoding)
-        val rawPublicKey = publicKey.encoded.takeLast(32).toByteArray()
+        Log.d(TAG, "Private key algorithm: ${privateKey.algorithm}")
+        Log.d(TAG, "Public key algorithm: ${publicKey.algorithm}")
+        Log.d(TAG, "Public key format: ${publicKey.format}")
+        Log.d(TAG, "Public key encoded length: ${publicKey.encoded.size}")
+
+        // Extract raw 32-byte Ed25519 public key from SPKI encoding
+        val spki = publicKey.encoded
+        val rawPublicKey = if (spki.size == ED25519_SPKI_PREFIX.size + 32 &&
+            spki.take(ED25519_SPKI_PREFIX.size) == ED25519_SPKI_PREFIX.toList()) {
+            // Standard Ed25519 SPKI: 12-byte prefix + 32-byte raw key
+            spki.copyOfRange(ED25519_SPKI_PREFIX.size, spki.size)
+        } else {
+            // Fallback: take last 32 bytes
+            Log.w(TAG, "Non-standard SPKI encoding (${spki.size} bytes), taking last 32")
+            spki.takeLast(32).toByteArray()
+        }
 
         // Device ID = SHA-256 hex fingerprint
         deviceId = MessageDigest.getInstance("SHA-256")
@@ -86,6 +129,7 @@ class DeviceIdentity(context: Context) {
             .encodeToString(rawPublicKey)
 
         Log.d(TAG, "Device ID: ${deviceId.take(16)}...")
+        Log.d(TAG, "Raw public key size: ${rawPublicKey.size}")
     }
 
     /**
@@ -121,18 +165,19 @@ class DeviceIdentity(context: Context) {
             nonce
         ).joinToString("|")
         Log.d(TAG, "Auth payload to sign: $payload")
-        Log.d(TAG, "Auth payload bytes (hex): ${payload.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) }}")
         val sig = sign(payload.toByteArray(Charsets.UTF_8))
-        Log.d(TAG, "Signature (base64url): $sig")
-        Log.d(TAG, "Public key (base64url): $publicKeyBase64Url")
+        Log.d(TAG, "Signature (base64url): $sig (${Base64.getUrlDecoder().decode(sig + "==").size} bytes)")
         return sig
     }
 
     private fun sign(data: ByteArray): String {
-        val signer = Signature.getInstance("Ed25519")
+        // Use the same provider as the key to ensure Ed25519 signing
+        val algoName = if (privateKey.algorithm == "EdDSA") "EdDSA" else "Ed25519"
+        val signer = Signature.getInstance(algoName, "AndroidKeyStore")
         signer.initSign(privateKey)
         signer.update(data)
         val sig = signer.sign()
+        Log.d(TAG, "Raw signature size: ${sig.size} bytes (expected 64 for Ed25519)")
         return Base64.getUrlEncoder().withoutPadding().encodeToString(sig)
     }
 }

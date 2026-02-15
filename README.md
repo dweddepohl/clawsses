@@ -53,6 +53,8 @@ OpenClaw Gateway ←─ WebSocket ──→ Phone App (Android) ←─ Bluetooth
 
 ## Setup
 
+Intimadated by all the instructions below? Ask you OpenClaw to help to make things a lot easier.
+
 ### Prerequisites
 
 - [Git](https://git-scm.com/download/)
@@ -175,8 +177,8 @@ The glasses touchpad has two focus areas that change what gestures do:
 
 | Gesture | Message History | Menu Bar |
 |---------|-------------|----------|
-| **Swipe forward** (→ eyes) | Scroll up | Previous menu item |
-| **Swipe backward** (→ ear) | Scroll down | Next menu item |
+| **Swipe forward** (→ eyes) | Scroll down | Previous menu item |
+| **Swipe backward** (→ ear) | Scroll up | Next menu item |
 | **Tap** | Scroll to bottom | Execute menu action |
 | **Double-tap** | Jump to menu  | Exit app |
 | **Long-press** | Voice input | Voice input |

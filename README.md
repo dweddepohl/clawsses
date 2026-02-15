@@ -90,11 +90,22 @@ The phone app bundles the glasses APK and can push it to the glasses over WiFi P
 </p>
 
 1. Open the phone app and configure your OpenClaw Gateway host, port, and token in Settings (I recommend using a VPN, like Tailscale and not connecting OpenClaw to the open Internet)
-2. Fold the right leg, and triple click the camera button to start pairing mode on the glasses.
-3. Scan for and connect to your Rokid glasses via Bluetooth
-4. Use the Install to glasses button in the settings screen to load the app onto the glasses via Wifi
-5. Put on the glasses and find the app in the last position of your apps screen
-6. The glasses HUD will show the connection status and your current session
+2. The first time you connect, the gateway will reject the connection because your device isn't paired yet. On the gateway, approve the pending device:
+   ```bash
+   # List pending pairing requests
+   openclaw devices list
+
+   # Approve the pending request (use the requestId from the gateway logs)
+   openclaw devices approve <requestId>
+   ```
+   After approval, the app will automatically reconnect and receive a device token for future sessions.
+3. Fold the right leg, and triple click the camera button to start pairing mode on the glasses.
+4. Scan for and connect to your Rokid glasses via Bluetooth
+5. Use the Install to glasses button in the settings screen to load the app onto the glasses via Wifi
+6. Put on the glasses and find the app in the last position of your apps screen
+7. The glasses HUD will show the connection status and your current session
+
+> **Note:** The app uses Ed25519 device identity for authentication. On first launch, it generates a keypair that uniquely identifies your device. The gateway must approve this device before allowing connections. This is the same security model used by the OpenClaw CLI and Control UI.
 
 ## Usage
 

@@ -1,3 +1,5 @@
+NOTE: Connecting to the gateway required disabling device security in the previous version (Feb 13). That is now fixed, pull the latest version and retry if you had issues connecting to your gateway (and read the Connect section below on how to approve devices)
+
 # Clawsses
 
 Connect to your [OpenClaw](https://github.com/openclaw/openclaw) server 🦞 with your [Rokid Glasses](https://global.rokid.com/pages/rokid-glasses) 🕶️. Bring the power of OpenClaw with you anywhere you go. Give it voice command, send it photos of what you're looking at and see the answers stream in on the screens inside the glasses and hear your molty speak.

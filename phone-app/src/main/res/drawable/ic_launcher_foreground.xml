@@ -4,12 +4,12 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Terminal icon: > symbol -->
+    <!-- Terminal icon: > symbol (Clawsses brand green) -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#00C473"
         android:pathData="M38,36 L58,54 L38,72 L42,76 L66,54 L42,32 Z"/>
     <!-- Underscore cursor -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#00C473"
         android:pathData="M60,68 L76,68 L76,72 L60,72 Z"/>
 </vector>

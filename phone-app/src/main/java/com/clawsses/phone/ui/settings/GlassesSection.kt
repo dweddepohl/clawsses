@@ -32,10 +32,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -55,6 +58,7 @@ fun GlassesSection(
     onInitWifiP2P: () -> Unit,
     onClearSn: () -> Unit,
     onCancelReconnect: () -> Unit,
+    onRetryReconnect: () -> Unit = {},
     hasCachedSn: Boolean,
     cachedSn: String?,
     cachedDeviceName: String?,
@@ -88,6 +92,7 @@ fun GlassesSection(
                         attempt = state.attempt,
                         nextRetryMs = state.nextRetryMs,
                         onCancel = onCancelReconnect,
+                        onRetry = onRetryReconnect,
                     )
 
                 is GlassesConnectionManager.ConnectionState.Connected ->
@@ -236,23 +241,45 @@ private fun ConnectingContent(message: String = "Connecting...") {
 }
 
 @Composable
-private fun ReconnectingContent(attempt: Int, nextRetryMs: Long, onCancel: () -> Unit) {
+private fun ReconnectingContent(attempt: Int, nextRetryMs: Long, onCancel: () -> Unit, onRetry: () -> Unit) {
+    // Live countdown timer
+    var secondsLeft by remember(nextRetryMs) { mutableIntStateOf((nextRetryMs / 1000).toInt().coerceAtLeast(0)) }
+
+    LaunchedEffect(nextRetryMs) {
+        while (secondsLeft > 0) {
+            delay(1000L)
+            secondsLeft = (secondsLeft - 1).coerceAtLeast(0)
+        }
+    }
+
     StatusRow(
         color = Color(0xFFFFA500), // Orange
         title = "Reconnecting...",
-        subtitle = "Attempt #$attempt (next retry in ${nextRetryMs / 1000}s)",
+        subtitle = "Attempt #$attempt (retry in ${secondsLeft}s)",
         showProgress = true,
     )
 
     Spacer(Modifier.height(16.dp))
 
-    OutlinedButton(
-        onClick = onCancel,
+    Row(
         modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("Cancel")
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.weight(1f),
+        ) {
+            Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Cancel")
+        }
+
+        Button(
+            onClick = onRetry,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text("Retry Now")
+        }
     }
 }
 

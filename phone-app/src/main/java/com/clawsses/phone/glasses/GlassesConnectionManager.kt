@@ -502,6 +502,35 @@ class GlassesConnectionManager(private val context: Context) {
     }
 
     /**
+     * Retry reconnect immediately — cancel the current backoff wait and attempt now.
+     */
+    fun retryReconnectNow() {
+        reconnectJob?.cancel()
+        reconnectAttempts = 0
+        currentReconnectDelayMs = RECONNECT_BASE_DELAY_MS
+
+        if (!RokidSdkManager.hasSavedConnectionInfo()) {
+            _connectionState.value = ConnectionState.Disconnected
+            return
+        }
+
+        _connectionState.value = ConnectionState.Connecting
+        reconnectScope.launch {
+            if (RokidSdkManager.reconnect(1)) {
+                Log.i(TAG, "Immediate retry initiated")
+                delay(RECONNECT_TIMEOUT_MS)
+                val state = _connectionState.value
+                if (state is ConnectionState.Reconnecting || state is ConnectionState.Connecting) {
+                    Log.w(TAG, "Immediate retry timed out")
+                    scheduleReconnect()
+                }
+            } else {
+                _connectionState.value = ConnectionState.Disconnected
+            }
+        }
+    }
+
+    /**
      * Cancel auto-reconnect and go back to Disconnected state.
      * Called when the user wants to stop waiting for auto-reconnect.
      * From Disconnected, the existing Scan button lets them re-pair manually.

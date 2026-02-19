@@ -8,6 +8,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.os.LocaleList
 import java.util.Locale
 
 /**
@@ -26,7 +27,42 @@ class VoiceLanguageManager(private val context: Context) {
             Locale("en", "US"),  // English (US)
         )
 
+        /** Common languages to include in fallback so most users find their language. */
+        private val COMMON_LOCALES = listOf(
+            Locale("de", "DE"),  // German
+            Locale("fr", "FR"),  // French
+            Locale("es", "ES"),  // Spanish
+            Locale("it", "IT"),  // Italian
+            Locale("pt", "BR"),  // Portuguese (Brazil)
+            Locale("pt", "PT"),  // Portuguese (Portugal)
+            Locale("pl", "PL"),  // Polish
+            Locale("tr", "TR"),  // Turkish
+            Locale("ru", "RU"),  // Russian
+            Locale("ja", "JP"),  // Japanese
+            Locale("ko", "KR"),  // Korean
+            Locale("zh", "CN"),  // Chinese (Simplified)
+            Locale("ar", "SA"),  // Arabic
+            Locale("hi", "IN"),  // Hindi
+            Locale("sv", "SE"),  // Swedish
+            Locale("da", "DK"),  // Danish
+            Locale("nb", "NO"),  // Norwegian
+            Locale("fi", "FI"),  // Finnish
+            Locale("uk", "UA"),  // Ukrainian
+            Locale("cs", "CZ"),  // Czech
+            Locale("ro", "RO"),  // Romanian
+            Locale("el", "GR"),  // Greek
+            Locale("id", "ID"),  // Indonesian
+            Locale("th", "TH"),  // Thai
+            Locale("vi", "VN"),  // Vietnamese
+        )
+
         private val FALLBACK_LOCALE = Locale("en", "US")
+
+        /** Get the user's configured device languages (Android settings). */
+        fun getDeviceLocales(): List<Locale> {
+            val localeList = LocaleList.getDefault()
+            return (0 until localeList.size()).map { localeList[it] }
+        }
     }
 
     data class LanguageOption(
@@ -53,7 +89,7 @@ class VoiceLanguageManager(private val context: Context) {
     fun queryAvailableLanguages() {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             Log.w(TAG, "Speech recognition not available — using fallback list")
-            _availableLanguages.value = PREFERRED_LOCALES.map { it.toLanguageOption() }
+            _availableLanguages.value = buildFallbackList()
             return
         }
 
@@ -105,7 +141,7 @@ class VoiceLanguageManager(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error querying languages", e)
-            _availableLanguages.value = PREFERRED_LOCALES.map { it.toLanguageOption() }
+            _availableLanguages.value = buildFallbackList()
             _isLoadingLanguages.value = false
         }
     }
@@ -134,8 +170,8 @@ class VoiceLanguageManager(private val context: Context) {
 
     private fun buildLanguageList(supported: List<String>?): List<LanguageOption> {
         if (supported.isNullOrEmpty()) {
-            // Fallback: offer preferred locales only
-            return PREFERRED_LOCALES.map { it.toLanguageOption() }
+            // Fallback: device languages + preferred + common languages
+            return buildFallbackList()
         }
 
         val allOptions = supported.mapNotNull { tag ->
@@ -152,18 +188,39 @@ class VoiceLanguageManager(private val context: Context) {
             }
         }.distinctBy { it.tag }
 
-        // Partition: preferred locales first, then the rest sorted alphabetically
-        val preferredTags = PREFERRED_LOCALES.map { it.toLanguageTag() }.toSet()
-        val preferred = PREFERRED_LOCALES.mapNotNull { pref ->
-            allOptions.firstOrNull { it.tag == pref.toLanguageTag() }
-                ?: if (preferredTags.contains(pref.toLanguageTag())) {
-                    // Include even if not in device list (spec says "must always appear")
-                    pref.toLanguageOption()
-                } else null
-        }
-        val rest = allOptions.filter { it.tag !in preferredTags }.sortedBy { it.displayName }
+        // Partition: device languages + preferred first, then the rest sorted alphabetically
+        val deviceLocales = getDeviceLocales()
+        val topTags = (deviceLocales.map { it.toLanguageTag() } +
+            PREFERRED_LOCALES.map { it.toLanguageTag() }).toCollection(LinkedHashSet())
 
-        return preferred + rest
+        val top = topTags.mapNotNull { tag ->
+            allOptions.firstOrNull { it.tag == tag }
+                ?: Locale.forLanguageTag(tag).takeIf { it.language.isNotEmpty() }?.toLanguageOption()
+        }
+        val rest = allOptions.filter { it.tag !in topTags }.sortedBy { it.displayName }
+
+        return top + rest
+    }
+
+    /**
+     * Build a language list when the device speech recognizer query fails.
+     * Uses device-configured languages + preferred + common languages.
+     */
+    private fun buildFallbackList(): List<LanguageOption> {
+        val deviceLocales = getDeviceLocales()
+
+        // Device languages first, then preferred, then common — deduplicated
+        val seen = LinkedHashSet<String>()
+        val result = mutableListOf<LanguageOption>()
+
+        for (locale in deviceLocales + PREFERRED_LOCALES + COMMON_LOCALES) {
+            val tag = locale.toLanguageTag()
+            if (seen.add(tag)) {
+                result.add(locale.toLanguageOption())
+            }
+        }
+
+        return result
     }
 
     private fun Locale.toLanguageOption() = LanguageOption(

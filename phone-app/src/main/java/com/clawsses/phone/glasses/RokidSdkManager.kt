@@ -10,6 +10,7 @@ import com.rokid.cxr.client.extend.callbacks.ApkStatusCallback
 import com.rokid.cxr.client.extend.callbacks.BluetoothStatusCallback
 import com.rokid.cxr.client.extend.callbacks.WifiP2PStatusCallback
 import com.rokid.cxr.client.extend.callbacks.PhotoResultCallback
+import com.rokid.cxr.client.extend.listeners.BrightnessUpdateListener
 import com.rokid.cxr.client.extend.listeners.CustomCmdListener
 import com.rokid.cxr.client.utils.ValueUtil
 import android.util.Base64
@@ -53,6 +54,9 @@ object RokidSdkManager {
 
     // Track if we're in init phase (need to call connectBluetooth after getting info)
     private var pendingConnect = false
+
+    // Last known brightness from glasses (tracked via BrightnessUpdateListener)
+    private var lastKnownBrightness: Int = 15
 
     // SN auto-generation: first attempt fails, we read the SN and retry
     private var snAutoRetryInProgress = false
@@ -303,6 +307,15 @@ object RokidSdkManager {
                 override fun onAiExit() {
                     Log.d(TAG, "AI scene exited on glasses")
                     onAiExit?.invoke()
+                }
+            })
+
+            // Track glasses brightness changes so we can restore the user's
+            // preferred level when waking the display from standby.
+            cxrApi?.setBrightnessUpdateListener(object : BrightnessUpdateListener {
+                override fun onBrightnessUpdated(brightness: Int) {
+                    Log.d(TAG, "Glasses brightness updated: $brightness")
+                    lastKnownBrightness = brightness
                 }
             })
 
@@ -878,15 +891,15 @@ object RokidSdkManager {
      * Safe to call repeatedly — setting brightness when already at that
      * level is effectively a no-op.
      */
-    fun wakeGlassesScreen(brightness: Int = 15): Boolean {
+    fun wakeGlassesScreen(): Boolean {
         if (!isInitialized || !isBluetoothConnectedState) {
             Log.d(TAG, "Cannot wake glasses screen: init=$isInitialized, bt=$isBluetoothConnectedState")
             return false
         }
         return try {
-            cxrApi?.setGlassBrightness(brightness)
+            cxrApi?.setGlassBrightness(lastKnownBrightness)
             cxrApi?.setScreenOffTimeout(30)
-            Log.i(TAG, "Wake glasses screen: brightness=$brightness, timeout reset to 30s")
+            Log.i(TAG, "Wake glasses screen: brightness=$lastKnownBrightness, timeout reset to 30s")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to wake glasses screen", e)

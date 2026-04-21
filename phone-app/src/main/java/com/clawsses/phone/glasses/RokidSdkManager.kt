@@ -597,7 +597,8 @@ object RokidSdkManager {
         }
 
         return try {
-            caps.write(command)
+            var truncated = if (command.length > 500) command.take(500) + "..." else command
+            caps.write(truncated)
             cxrApi?.sendCustomCmd("terminal", caps)
             Log.d(TAG, "Sent to glasses: ${command.take(50)}...")
             true

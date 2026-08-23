@@ -241,6 +241,18 @@ object RokidSdkManager {
         override fun onOpenAppFailed() {
             Log.e(TAG, "Failed to open app")
         }
+
+        override fun onStopAppResult(success: Boolean) {
+            Log.d(TAG, "Stop app result: success=$success")
+        }
+
+        override fun onGlassAppResume(packageName: String?) {
+            Log.d(TAG, "Glasses app resumed: package=$packageName")
+        }
+
+        override fun onQueryAppResult(packageName: String?, installed: Boolean) {
+            Log.d(TAG, "Glasses app query result: package=$packageName, installed=$installed")
+        }
     }
 
     /**
